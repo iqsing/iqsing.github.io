@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>k8s负载资源StatefulSet工作细节 | qsing`s blog</title>
+  <meta name="description" content="在k8s中工作负载资源StatefulSet用于管理有状态应用。 什么是无状态？ 组成一个应用的pod是对等的，它们之前没有关联和依赖关系，不依赖外部存储。 即我们上篇小作文中deployment创建的nginx pod ，他们是完全一样的，任何一个pod 被移除后依然可以正常工作。由于不依赖外部存储，它们可以被轻易的调度到任何 node 上。 什么是有状态？ 显然无状态的反面就是有状态了，pod">
+<meta property="og:type" content="article">
+<meta property="og:title" content="k8s负载资源StatefulSet工作细节">
+<meta property="og:url" content="https://iqsing.github.io/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="在k8s中工作负载资源StatefulSet用于管理有状态应用。 什么是无状态？ 组成一个应用的pod是对等的，它们之前没有关联和依赖关系，不依赖外部存储。 即我们上篇小作文中deployment创建的nginx pod ，他们是完全一样的，任何一个pod 被移除后依然可以正常工作。由于不依赖外部存储，它们可以被轻易的调度到任何 node 上。 什么是有状态？ 显然无状态的反面就是有状态了，pod">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210927121907615.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210926164056933.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210926164906187.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/rs_pv_pvc.jpg">
+<meta property="article:published_time" content="2021-09-26T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:12.014Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="statefulset">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210927121907615.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-k8s负载资源StatefulSet工作细节" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      k8s负载资源StatefulSet工作细节
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/" class="article-date">
+	  <time datetime="2021-09-26T16:47:21.000Z" itemprop="datePublished">2021-09-27</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/k8s/">k8s</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/statefulset/" rel="tag">statefulset</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 2.1k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 9(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>在k8s中工作负载资源StatefulSet用于管理有状态应用。</p>
+<p><strong>什么是无状态？</strong></p>
+<p>组成一个应用的pod是对等的，它们之前没有关联和依赖关系，不依赖外部存储。</p>
+<p>即我们上篇小作文中deployment创建的nginx pod ，他们是完全一样的，任何一个pod 被移除后依然可以正常工作。由于不依赖外部存储，它们可以被轻易的调度到任何 node 上。</p>
+<p><strong>什么是有状态？</strong></p>
+<p>显然无状态的反面就是有状态了，pod之间可能包含主从、主备的相互依赖关系，甚至对启动顺序也有要求。更关键的是这些pod 需要外部存储，一旦pod被清除或调度后，怎么把pod 和原来的外部数据联系起来？这就是StatefulSet厉害的地方。</p>
+<p><strong>StatefulSet将这些状态应用进行记录，在需要的时候恢复。</strong></p>
+<hr>
+<h3 id="StatefulSet如何展开这些工作"><a href="#StatefulSet如何展开这些工作" class="headerlink" title="StatefulSet如何展开这些工作?"></a>StatefulSet如何展开这些工作?</h3><h4 id="一、维护应用拓扑状态"><a href="#一、维护应用拓扑状态" class="headerlink" title="一、维护应用拓扑状态"></a>一、维护应用拓扑状态</h4><h4 id="通过dns记录为-pod-分配集群内唯一、稳定的网络标识。即只要保证pod-的名称不变，pod被调度到任何节点或者ip如何变更都能被找到。"><a href="#通过dns记录为-pod-分配集群内唯一、稳定的网络标识。即只要保证pod-的名称不变，pod被调度到任何节点或者ip如何变更都能被找到。" class="headerlink" title="通过dns记录为 pod 分配集群内唯一、稳定的网络标识。即只要保证pod 的名称不变，pod被调度到任何节点或者ip如何变更都能被找到。"></a>通过dns记录为 pod 分配集群内唯一、稳定的网络标识。即只要保证pod 的名称不变，pod被调度到任何节点或者ip如何变更都能被找到。</h4><p> 在 k8s 中Service用来来将一组 Pod 暴露给外界访问的一种机制。<strong>当创建的service 中clusterIP为None 时（headless 无头服务）， 不会进行负载均衡，也不会为该服务分配集群 IP。仅自动配置 DNS。</strong></p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210927121907615.png" alt="image-20210927121907615"></p>
+<p>这样我们集群中的 一个pod 将被绑定到一条DNS记录：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;pod-name&gt;.&lt;svc-name&gt;.&lt;namespace&gt;.svc.cluster.local</span><br></pre></td></tr></table></figure>
+
+<p>通过解析这个地址就能找到pod的IP 。</p>
+<p>下面我们创建一个headless service，将<code>clusterIP</code>配置为<code> None</code>：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#headless-service.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Service</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-headless</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">ports:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx-service-port</span></span><br><span class="line">    <span class="attr">port:</span> <span class="number">80</span></span><br><span class="line">    <span class="attr">targetPort:</span> <span class="number">9376</span></span><br><span class="line">  <span class="attr">clusterIP:</span> <span class="string">None</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">app:</span> <span class="string">nginx</span></span><br></pre></td></tr></table></figure>
+
+<p>这个service将会绑定 <code>app=nginx</code>标签的pod，我们通过<code>kubectl apply -f headless-service.yml</code>应用service 并通过get 查看：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get service</span></span><br><span class="line">NAME             TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE</span><br><span class="line">kubernetes       ClusterIP   10.96.0.1    &lt;none&gt;        443/TCP   18d</span><br><span class="line">nginx-headless   ClusterIP   None         &lt;none&gt;        80/TCP    4h48m</span><br></pre></td></tr></table></figure>
+
+<p>nginx-headless 这个headless service创建成功了。接着我们创建一个StatefulSet：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#nginx-statefulset.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">StatefulSet</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-statefulset</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">serviceName:</span> <span class="string">&quot;nginx-headless&quot;</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx-web</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:1.17</span></span><br><span class="line">        <span class="attr">ports:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">82</span></span><br></pre></td></tr></table></figure>
+
+<p>nginx-statefulset 将会绑定我们前面的service <code>nginx-headless</code>并创建三个nginx pod。</p>
+<p><strong>我们查看创建的pod ,StatefulSet 中的每个 Pod 根据 StatefulSet 的名称和 Pod 的序号派生出它的主机名。同时statefulset创建出来的pod 名称以<code>$(StatefulSet name)-$(order)</code>开始编号。</strong></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span> </span><br><span class="line">NAME                  READY   STATUS    RESTARTS   AGE</span><br><span class="line">nginx-statefulset-0   1/1     Running   0          18s</span><br><span class="line">nginx-statefulset-1   1/1     Running   0          15s</span><br><span class="line">nginx-statefulset-2   1/1     Running   0          12s</span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl <span class="built_in">exec</span> nginx-statefulset-0 -- sh -c hostname</span></span><br><span class="line">nginx-statefulset-0</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>其实他们的创建顺序也是从0-2，当我们删除这些pod时，statefulset 马上重建出相同名称的Pod 。</p>
+<p>我们通过statefulset 的event可以观测到这个过程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">$ kubectl describe  nginx-statefulset</span><br><span class="line">Events:</span><br><span class="line">  Type    Reason            Age    From                    Message</span><br><span class="line">  ----    ------            ----   ----                    -------</span><br><span class="line">  Normal  SuccessfulCreate  7m43s  statefulset-controller  create Pod nginx-statefulset-0 in StatefulSet nginx-statefulset successful</span><br><span class="line">  Normal  SuccessfulCreate  7m40s  statefulset-controller  create Pod nginx-statefulset-1 in StatefulSet nginx-statefulset successful</span><br><span class="line">  Normal  SuccessfulCreate  7m37s  statefulset-controller  create Pod nginx-statefulset-2 in StatefulSet nginx-statefulset successful</span><br></pre></td></tr></table></figure>
+
+<p>现在我们来看一下 pod 是否存在于 DNS 记录中：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kubectl run -it --image busybox busybox --rm /bin/sh</span><br></pre></td></tr></table></figure>
+
+<p>运行一个一次性 pod busybox ，接着使用 ping 命令查询之前提到的规则构建名称<code>nginx-statefulset-0.nginx-headless.default.svc.cluster.local</code></p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210926164056933.png" alt="image-20210926164056933"></p>
+<p>解析的IP与如下<code>nginx-statefulset-0</code>相符。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210926164906187.png" alt="image-20210926164906187"></p>
+<p><strong>这样我们使用pod名称通过DNS就可以找到这个pod 再加上StatefulSet可以按顺序创建出不变名称的 pod ，即一个应用通过StatefulSet准确维护其<em>拓扑状态</em></strong></p>
+<hr>
+<h3 id="二、维护应用存储状态"><a href="#二、维护应用存储状态" class="headerlink" title="二、维护应用存储状态"></a>二、维护应用存储状态</h3><p><strong>k8s为应对应用的数据存储需求提供了卷的概念（volume）以及提供持久化存储的PVC（ PersistentVolumeClaim）PV（ PersistentVolume）当一个pod 和 PVC绑定后，即使pod 被移除，PVC和PV仍然保留在集群中，pod 再次被创建后会自动绑定到之前的PVC。</strong>他们看起来是这样的：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/rs_pv_pvc.jpg" alt="rs_pv_pvc"></p>
+<p>这里我们以讨论statefulset持久化存储为主，对于k8s存储本身不了解的同学可以参考k8s官方文档存储章节<a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/storage/">storage</a></p>
+<p>首先我们创建存储目录 /data/volumes/ 以及一个本地的<code>local</code>类型（使用节点上的文件或目录来模拟网络附加存储）的PV：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#pv-local.yml</span></span><br><span class="line"></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">PersistentVolume</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">pv-local</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">capacity:</span></span><br><span class="line">    <span class="attr">storage:</span> <span class="string">5Gi</span> </span><br><span class="line">  <span class="attr">volumeMode:</span> <span class="string">Filesystem</span></span><br><span class="line">  <span class="attr">accessModes:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="string">ReadWriteMany</span></span><br><span class="line">  <span class="attr">persistentVolumeReclaimPolicy:</span> <span class="string">Delete</span></span><br><span class="line">  <span class="attr">storageClassName:</span> <span class="string">local-storage</span></span><br><span class="line">  <span class="attr">local:</span></span><br><span class="line">    <span class="attr">path:</span> <span class="string">/data/volumes/</span> </span><br><span class="line">  <span class="attr">nodeAffinity:</span></span><br><span class="line">    <span class="attr">required:</span></span><br><span class="line">      <span class="attr">nodeSelectorTerms:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">matchExpressions:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">key:</span> <span class="string">kubernetes.io/hostname</span></span><br><span class="line">          <span class="attr">operator:</span> <span class="string">In</span></span><br><span class="line">          <span class="attr">values:</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">minikube</span></span><br></pre></td></tr></table></figure>
+
+<p>PV是集群中的一块存储，它声明了后端使用的真实存储，通常会由K8S管理员创建。我们在<code>pv-local</code>中声明了后端存储类型为<code>local</code>挂载到目录 /data/volumes/ , 存储卷类名为<code>local-storage</code>，1Gb容量，访问模式<code>ReadWriteMany</code> – 卷可以被多个个节点以读写方式挂载。亲和的节点为<code>minikube</code></p>
+<p>我们通过get来查看这个PV：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pv</span></span><br><span class="line">NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM             STORAGECLASS    REASON   AGE</span><br><span class="line">pv-local   5Gi        RWX            Delete           Available                  local-storage            25m</span><br></pre></td></tr></table></figure>
+
+<p>此时PV的状态为<code>available</code>，还未与任何PVC绑定。<strong>我们通过创建PV使集群得到了一块存储资源，但此时还不属于你的应用，我们需要通过PVC去构建一个使用它的”通道“。</strong></p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#app1-pvc.yml</span></span><br><span class="line"></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">PersistentVolumeClaim</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">app1-pvc</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">storageClassName:</span> <span class="string">local-storage</span></span><br><span class="line">  <span class="attr">accessModes:</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">ReadWriteMany</span></span><br><span class="line">  <span class="attr">resources:</span></span><br><span class="line">    <span class="attr">requests:</span></span><br><span class="line">      <span class="attr">storage:</span> <span class="string">1Gi</span></span><br></pre></td></tr></table></figure>
+
+<p>现在我们开辟好一个5Gb容量的存储通道（PVC），此时PV和PVC已通过 <code>storageClassName</code>自动形成绑定。这样PV和PVC的status 皆为<code>Bound</code></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pv</span></span><br><span class="line">NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM             STORAGECLASS    REASON   AGE</span><br><span class="line">pv-local   5Gi        RWX            Delete           Bound    default/app-pvc   local-storage            25m</span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pvc</span></span><br><span class="line">NAME      STATUS   VOLUME     CAPACITY   ACCESS MODES   STORAGECLASS    AGE</span><br><span class="line">app-pvc   Bound    pv-local   5Gi        RWX            local-storage   27m</span><br></pre></td></tr></table></figure>
+
+<p>上面我们创建好通道，接下来要在我们statefuset中绑定这个通道，才能顺利使用存储。</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># nginx-statefulset.yml</span></span><br><span class="line"></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span>            </span><br><span class="line"><span class="attr">kind:</span> <span class="string">StatefulSet</span>              </span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-statefulset</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">serviceName:</span> <span class="string">&quot;nginx-headless&quot;</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span>               </span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span>                  </span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">nodeName:</span> <span class="string">minikube</span></span><br><span class="line">      <span class="attr">volumes:</span> </span><br><span class="line">        <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">app-storage</span></span><br><span class="line">          <span class="attr">persistentVolumeClaim:</span>          </span><br><span class="line">            <span class="attr">claimName:</span> <span class="string">app-pvc</span></span><br><span class="line">            </span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx-web</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:1.17</span></span><br><span class="line">        <span class="attr">ports:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">80</span></span><br><span class="line">          <span class="attr">name:</span> <span class="string">nginx-port</span></span><br><span class="line">        <span class="attr">volumeMounts:</span></span><br><span class="line">          <span class="bullet">-</span> <span class="attr">mountPath:</span> <span class="string">/usr/share/nginx/html</span></span><br><span class="line">            <span class="attr">name:</span> <span class="string">app-storage</span></span><br></pre></td></tr></table></figure>
+
+<p>与之前的statefulset相比我们在pod 模板中添加了<code>volume</code> 已经 <code>volumeMounts</code>，这样使用这个statefulset 所创建的pod都将挂载 我们前面定义的PVC <code>app-pvc</code>，应用<code>nginx-statefulset.yml</code>后我们进入到pod 检验一下目录是否被正确挂载。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl <span class="built_in">exec</span> -it nginx-statefulset-0 -- /bin/bash</span></span><br><span class="line"></span><br><span class="line">root@nginx-statefulset-0:/# cat /usr/share/nginx/html/index.html</span><br><span class="line">hello pv</span><br></pre></td></tr></table></figure>
+
+<p>查看本地目录文件：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">root@minikube:/# cat /data/volumes/index.html </span><br><span class="line">hello pv</span><br></pre></td></tr></table></figure>
+
+<p>接着我们在pod 中修改index.html内容为并将pod删除，检验重载后的 pod 存储数据是否能被找回。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">root@nginx-statefulset-0:/# echo &quot;pod data&quot; &gt; /usr/share/nginx/html/index.html</span><br></pre></td></tr></table></figure>
+
+<p>删除带有标签<code>app=nginx</code>的pod ,由于statefulset的控制器使pod按顺序被重建：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl delete pod -l app=nginx</span></span><br><span class="line">pod &quot;nginx-statefulset-0&quot; deleted</span><br><span class="line">pod &quot;nginx-statefulset-1&quot; deleted</span><br><span class="line">pod &quot;nginx-statefulset-2&quot; deleted</span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span> </span><br><span class="line">NAME                  READY   STATUS              RESTARTS   AGE</span><br><span class="line">nginx-statefulset-0   1/1     Running             0          9s</span><br><span class="line">nginx-statefulset-1   1/1     Running             0          6s</span><br><span class="line">nginx-statefulset-2   0/1     ContainerCreating   0          3s</span><br></pre></td></tr></table></figure>
+
+<p>毫无疑问，pod 数据完好无损：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl <span class="built_in">exec</span> -it nginx-statefulset-0 -- /bin/bash</span></span><br><span class="line">root@nginx-statefulset-0:/# cat /usr/share/nginx/html/index.html</span><br><span class="line">pod data</span><br></pre></td></tr></table></figure>
+
+<p><strong>也就是说虽然我们的pod被删除了，但是PV已经PV依然保留在集群中，当pod 被重建后，它依然会去找定义的<code>claimName: app-pvc</code>这个PVC，接着挂载到容器中。</strong></p>
+<p>这里我们一个PVC 绑定了多个节点，其实可以为每一个 statefulset中的pod 创建PVC，可以自行了解。</p>
+<p>k8s存储可操作性非常强，这里只在statefulset下做了简单的演示。后续我们会对k8s存储做更深入的了解。</p>
+<hr>
+<h3 id="三、总结"><a href="#三、总结" class="headerlink" title="三、总结"></a>三、总结</h3><p>这篇小作文我们一起学习了k8s中工作负载资源StatefulSet是如何管理有状态应用的，主要从维护应用拓扑状态和存储状态两个方面做了简单介绍。这样我们对statefulset这个工作资源有了大体了解：StatefulSet 与 Deployment 相比，它为每个管理的 Pod 都进行了编号，使Pod有一个稳定的启动顺序，并且是集群中唯一的网络标识。有了标识后使用PV、PVC对存储状态进行维护。</p>
+<hr>
+<p><strong>希望小作文对你有些许帮助，如果内容有误请指正。</strong></p>
+<p><strong>您可以随意转载、修改、发布本文，无需经过本人同意。</strong> 通过博客阅读：<a href="https://iqsing.github.io/">iqsing.github.io</a></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/" title="k8s负载资源StatefulSet工作细节" target="_blank" rel="external">https://iqsing.github.io/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/10/21/k8s%20DaemonSet%20%E4%BB%8B%E7%BB%8D%E4%B8%8E%E5%AE%9E%E4%BE%8B/" title="k8s DaemonSet 介绍与实例"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/" title="k8s工作负载资源之deployment">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

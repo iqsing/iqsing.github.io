@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>k8s 基于RBAC的认证、授权介绍和实践 | qsing`s blog</title>
+  <meta name="description" content="在K8S中，当我们试图通过API与集群资源交互时，必定经过集群资源管理对象入口kube-apiserver。显然不是随随便便来一个请求它都欢迎的，每个请求都需要经过合规检查，包括Authentication(身份验证)、Authorization(授权)和Admission Control(准入控制)。通过一系列验证后才能完成交互。  Kubernetes API 请求从发起到持久化到ETCD数据">
+<meta property="og:type" content="article">
+<meta property="og:title" content="k8s 基于RBAC的认证、授权介绍和实践">
+<meta property="og:url" content="https://iqsing.github.io/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="在K8S中，当我们试图通过API与集群资源交互时，必定经过集群资源管理对象入口kube-apiserver。显然不是随随便便来一个请求它都欢迎的，每个请求都需要经过合规检查，包括Authentication(身份验证)、Authorization(授权)和Admission Control(准入控制)。通过一系列验证后才能完成交互。  Kubernetes API 请求从发起到持久化到ETCD数据">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220121201812274.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220122011925935.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220122170015273.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220120025812853.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220120112142048.png">
+<meta property="article:published_time" content="2022-01-24T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:33:35.799Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="RBAC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220121201812274.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-k8s 基于RBAC的认证、授权介绍和实践" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      k8s 基于RBAC的认证、授权介绍和实践
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="article-date">
+	  <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/k8s/">k8s</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/RBAC/" rel="tag">RBAC</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 2k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 8(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>在K8S中，当我们试图通过API与集群资源交互时，必定经过集群资源管理对象入口kube-apiserver。显然不是随随便便来一个请求它都欢迎的，每个请求都需要经过合规检查，包括Authentication(身份验证)、Authorization(授权)和Admission Control(准入控制)。通过一系列验证后才能完成交互。</p>
+<p> Kubernetes API 请求从发起到持久化到ETCD数据库中的过程如下：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220121201812274.png" alt="image-20220121201812274"></p>
+<p>“三个A”我们可以简单理解为：</p>
+<ul>
+<li><code>Authentication</code>：<strong>你是谁？</strong>你能登录系统么？</li>
+<li><code>Authorization</code>：<strong>你想做什么？</strong>你有相应的权限么？</li>
+<li><code>Admission Control</code>： 在apiserver中准入控制会以控制器插件的方式存在，类似于各类web框架中的中间件，可以在kube-apiserver的yml中添加控制器插件<code>--enable-admission-plugins</code>开启。</li>
+</ul>
+<p>这篇小作文我们主要来学习K8S中关于认证与授权相关的知识，看看他们是如何实现的。包含如下内容：</p>
+<ul>
+<li>K8S 通过证书认证</li>
+<li>K8S 通过RBAC 授权</li>
+</ul>
+<h4 id="一、-K8S-通过证书认证"><a href="#一、-K8S-通过证书认证" class="headerlink" title="一、 K8S 通过证书认证"></a>一、 K8S 通过证书认证</h4><hr>
+<p>Authentication(身份认证)，即核查用户能否进入K8s集群。一般来说k8s中有两类用户，普通用户和服务账户(Service Account)。</p>
+<p>普通用户，使用者是人，即用户可以通过 kubectl 命令、或通过REST请求访问 API，<strong>但是请注意K8s不提供普通用户管理的资源对象</strong>，那所谓的普通用户哪里的？很简单只要你能通过k8s身份认证策略那么你就是一个普通用户。而Service Account 则是针对运行在 Pod 中的进程而言的。</p>
+<p>K8S的几种验证方式：</p>
+<ul>
+<li>Certificate</li>
+<li>Token</li>
+<li>OpenID</li>
+<li>Web Hook</li>
+</ul>
+<p>其中Certificate(证书)是在普通用户（客户端）中被广泛使用的验证方式。通过客户端证书进行身份验证时，客户端必须先获得一个有效的 x509 客户端证书，然后Kubernetes API服务器通过验证这个证书来验证你的身份。当然你的X509证书必须由集群 CA 证书签名。这其实就是HTTPS加密中的一部分，只不过是CA是K8S自签名的CA证书。</p>
+<p>首先我们通过openssl创建一个用户私钥</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">openssl genrsa -out develop1.key 2048</span><br></pre></td></tr></table></figure>
+
+<p>通过user.key 生成CSR（证书签名请求）,Kubernetes 使用证书中的 ‘subject’ 的通用名称（Common Name）字段来确定用户名,Organization Name 作为组。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">openssl req -new -key develop1.key -out develop1.csr -subj &quot;/CN=develop1/O=devops&quot;</span><br></pre></td></tr></table></figure>
+
+<p>有了CSR，我们就可以把它交给K8S admin通过集群CA签署客户端证书。kubeadm创建的集群证书对存储在master节点的 /etc/Kubernetes/pki/ 目录中，（当然如果你是admin，也可以直接通过API的方式签署证书）集群包含一个根 CA，用它签署所有集群组件相互通信所需的证书。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">openssl x509 -req -in develop1.csr -CA /etc/kubernetes/pki/ca.crt \</span><br><span class="line">-CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -out develop1.crt -days 30</span><br></pre></td></tr></table></figure>
+
+<p>这样我们获得了一个被集群CA签署过的证书<code>develop1.crt</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">develop1.crt  develop1.csr  develop1.key</span><br></pre></td></tr></table></figure>
+
+<p>查看证书内容<code>openssl x509 -noout -text -in develop1.crt</code>包含CN/O，以及证书过期时间。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220122011925935.png" alt="image-20220122011925935"></p>
+<p>好了，有了证书之后，下一步我们需要配置<code>kubecofnig</code>使<code>kubectl</code>可以正常访问apiserver，关于<code>kubeconfig</code>可参考官方文档<a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/configuration/organize-cluster-access-kubeconfig/">organize-cluster-access-kubeconfig</a> 这里我们以配置为主。</p>
+<p>默认情况下，<code>kubectl</code> 读取 <code>$HOME/.kube/config</code> 作为配置文件。也可以通过两种方式为 <code>kubectl</code> 指定配置文件：</p>
+<ul>
+<li>环境变量 <code>KUBECONFIG</code></li>
+<li>命令行参数 <code>--kubeconfig</code></li>
+</ul>
+<p>现在通过kubectl来创建config中的集群入口</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">kubectl config set-cluster kubernetes \</span><br><span class="line">    --server=https://apiserver.cluster.local:6443 \</span><br><span class="line">    --certificate-authority=/etc/kubernetes/pki/ca.crt \</span><br><span class="line">    --embed-certs=true </span><br></pre></td></tr></table></figure>
+
+<p>创建用户入口</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">kubectl config set-credentials develop1 \</span><br><span class="line">    --client-certificate=$HOME/private_key/develop1.crt \</span><br><span class="line">    --client-key=$HOME/private_key/develop1.key \</span><br><span class="line">    --embed-certs=true </span><br></pre></td></tr></table></figure>
+
+<p>创建上下文</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">kubectl config set-context develop1 \</span><br><span class="line">    --cluster=kubernetes \</span><br><span class="line">    --user=develop1 </span><br></pre></td></tr></table></figure>
+
+<p>指定当前context</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl config <span class="built_in">set</span> current-context develop1</span></span><br><span class="line">Property &quot;current-context&quot; set.</span><br><span class="line"><span class="meta">#</span><span class="bash">查看当前context，已绑定develop1</span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl config current-context</span></span><br><span class="line">develop1</span><br></pre></td></tr></table></figure>
+
+<p>通过<code>kubectl config view</code>查看当前的config</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220122170015273.png" alt="image-20220122170015273"></p>
+<p>这样我们<code>kubectl</code>已经配置完毕，但是此时我们只完成了<code>Authentication</code>，并没有获得权限</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span></span><br><span class="line">Error from server (Forbidden): pods is forbidden: User &quot;develop1&quot; cannot list resource &quot;pods&quot; in API group &quot;&quot; in thenamespace &quot;default&quot;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到develop1没有对命名空间<code>default</code>的<code>list</code>权限。所以接下来我们来学习<code>Authorization</code>授权相关内容。</p>
+<h4 id="二、K8S-通过RBAC-授权"><a href="#二、K8S-通过RBAC-授权" class="headerlink" title="二、K8S 通过RBAC 授权"></a>二、K8S 通过RBAC 授权</h4><hr>
+<p>RBAC(Role-Based Access Control)即基于角色的访问控制，在各类大型系统如虚拟化Vcenter、各类云服务以及众多toB软件访问控制中被大量使用。关于RBAC可参考一篇译文：<a target="_blank" rel="noopener" href="https://arthurchiao.art/blog/rbac-as-it-meant-to-be-zh/">[译] 基于角色的访问控制（RBAC）：演进历史、设计理念及简洁实现（Tailscale, 2021）</a></p>
+<p>k8s作为企业内部重要云基础设施并不希望每个使用平台的用户都可以不受限制的创建、修改和删除资源。同时伴随着集群节点、应用程序和团队数量的增加，你需要一种安全措施将用户或应用权限控制在某个范围内，这就K8S 在V1.8正式引入RBAC所要做的事（其他鉴权机制本文不涉及）。</p>
+<p>K8S的RBAC 主要由Role、ClusterRole、RoleBinding 和 ClusterRoleBinding 等资源实现。模型如下：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220120025812853.png" alt="image-20220120025812853"></p>
+<h5 id="Role、ClusterRole"><a href="#Role、ClusterRole" class="headerlink" title="Role、ClusterRole"></a>Role、ClusterRole</h5><p>角色是一组权限规则的集合，Role 用来定义某个命名空间内的访问权限，而ClusterRole 则是一个集群作用域的资源。为啥要用两个资源？因为Kubernetes 对象的作用域已经被划分为集群和命名空间两部分了。需要注意：角色只有授权没有禁止的操作。</p>
+<p>构成一个<strong>Rule</strong>需要声明三部分：</p>
+<ul>
+<li><code>apiGroups</code>：资源所属的API组：<code>&quot;&quot;</code> 缺省为 core 组资源，如：extensions、apps、batch等。<a target="_blank" rel="noopener" href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#-strong-api-groups-strong-">Kubernetes API 参考文档</a> </li>
+<li><code>resources</code>：资源，如： pods、deployments、services、secrets 等。</li>
+<li><code>verbs</code>：动作，如： get、list、watch、create、delete、update 等。</li>
+</ul>
+<p>现在我们来创建一个可以读取默认命名空间<code>default</code>的Role，它的api版本为：<code>rbac.authorization.k8s.io/v1</code></p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">rbac.authorization.k8s.io/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Role</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">namespace:</span> <span class="string">default</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">develop-defualt</span></span><br><span class="line"><span class="attr">rules:</span></span><br><span class="line"><span class="bullet">-</span> <span class="attr">apiGroups:</span> [<span class="string">&quot;&quot;</span>] <span class="comment">#core api组</span></span><br><span class="line">  <span class="attr">resources:</span> [<span class="string">&quot;pods&quot;</span>]</span><br><span class="line">  <span class="attr">verbs:</span> [<span class="string">&quot;get&quot;</span>, <span class="string">&quot;watch&quot;</span>, <span class="string">&quot;list&quot;</span>]</span><br></pre></td></tr></table></figure>
+
+<p>此时还没有api交互权限，所以应该通过kube-admin来创建</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> kubectl apply -f role.yml</span></span><br><span class="line">role.rbac.authorization.k8s.io/develop-defualt created</span><br></pre></td></tr></table></figure>
+
+<h5 id="RoleBinding、ClusterRoleBinding"><a href="#RoleBinding、ClusterRoleBinding" class="headerlink" title="RoleBinding、ClusterRoleBinding"></a>RoleBinding、ClusterRoleBinding</h5><p>上面我们已经创建了一个带权限的角色，下一步就了解如何将角色关联到用户。角色绑定是将我们角色中定义好的权限赋予一个或者一组用户，即上图Sujbect。RoleBinding 在指定的名字空间中执行授权，而 ClusterRoleBinding 在集群范围执行授权。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220120112142048.png" alt="image-20220120112142048"></p>
+<p>图中展示了三种绑定方式，除了常规的绑定各自作用域的角色外，RoleBinding还可以绑定集群级别的ClusterRole。有啥用呢？当我们要对namespace做授权时，通常可以创建namespace中的Role进行绑定，如果管理几百个NS则需创建相应数量的NS Role，显然不是很棒，所以我们将RoleBinding绑定到集群的ClusterRole，只需几个ClusterRole就可以将几百个NS做访问控制了。</p>
+<p>我们将上面创建的<code>develop-defualt</code>角色做绑定：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">rbac.authorization.k8s.io/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">RoleBinding</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">develop-rolebinding</span></span><br><span class="line">  <span class="attr">namespace:</span> <span class="string">default</span> <span class="comment">#授权的命名空间为default</span></span><br><span class="line"><span class="attr">subjects:</span></span><br><span class="line"><span class="bullet">-</span> <span class="attr">kind:</span> <span class="string">User</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">develop1</span> <span class="comment"># 绑定develop1用户</span></span><br><span class="line">  <span class="attr">apiGroup:</span> <span class="string">rbac.authorization.k8s.io</span></span><br><span class="line"><span class="attr">roleRef:</span></span><br><span class="line">  <span class="attr">kind:</span> <span class="string">Role</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">develop-defualt</span> <span class="comment">#绑定Role</span></span><br><span class="line">  <span class="attr">apiGroup:</span> <span class="string">rbac.authorization.k8s.io</span></span><br></pre></td></tr></table></figure>
+
+<p>通过admin创建RoleBinding</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash"> kubectl apply -f role-binding.yml</span></span><br><span class="line">rolebinding.rbac.authorization.k8s.io/develop-rolebinding created</span><br></pre></td></tr></table></figure>
+
+<p>ok，此时在使用<code>kubectl get pod</code>时，就能获得结果了。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span></span><br><span class="line">NAME                                              READY   STATUS    RESTARTS   AGE</span><br><span class="line">web-85549dcb84-nb67c                              1/1     Running   0          12d</span><br><span class="line">web-85549dcb84-z95sj                              1/1     Running   0          12d</span><br></pre></td></tr></table></figure>
+
+<p>ServiceAccount授权和普通用户相似，这里不再赘述。有兴趣的读者可以参考官方文档学习。</p>
+<p>以上我们对K8S中认证和授权做了基本介绍，以及对创建一个用户并授权pod读取权限做了实践。</p>
+<hr>
+<p><strong>希望小作文对你有些许帮助，如果内容有误请指正。</strong></p>
+<p><strong>您可以随意转载、修改、发布本文，无需经过本人同意。通过博客阅读</strong>：<a href="https://iqsing.github.io/">iqsing.github.io</a></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" title="k8s 基于RBAC的认证、授权介绍和实践" target="_blank" rel="external">https://iqsing.github.io/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    
+    <li class="next">
+      <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" title="k8s loadbalancer与ingress实践">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>docker容器网络bridge | qsing`s blog</title>
+  <meta name="description" content="我们知道docker利用linux内核特性namespace实现了网络的隔离，让每个容器都处于自己的小世界里面，当这个小世界需要与外界（宿主机或其他容器）通信的时候docker的网络就发挥作用了，这篇小作文我们一起来学习一下docker容器网络基础，这里我们会着重学习bridge模式的工作原理。  docker提供了三个开箱即用的网络模式（驱动）bridge、host 和 none 我们通过ls看">
+<meta property="og:type" content="article">
+<meta property="og:title" content="docker容器网络bridge">
+<meta property="og:url" content="https://iqsing.github.io/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="我们知道docker利用linux内核特性namespace实现了网络的隔离，让每个容器都处于自己的小世界里面，当这个小世界需要与外界（宿主机或其他容器）通信的时候docker的网络就发挥作用了，这篇小作文我们一起来学习一下docker容器网络基础，这里我们会着重学习bridge模式的工作原理。  docker提供了三个开箱即用的网络模式（驱动）bridge、host 和 none 我们通过ls看">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210810154854211.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210810152747249.png">
+<meta property="article:published_time" content="2021-08-10T04:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.806Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="bridge">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210810154854211.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-docker容器网络bridge" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      docker容器网络bridge
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/" class="article-date">
+	  <time datetime="2021-08-10T04:47:21.000Z" itemprop="datePublished">2021-08-10</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/docker/">docker</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/bridge/" rel="tag">bridge</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 2.1k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 9(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>我们知道docker利用linux内核特性namespace实现了网络的隔离，让每个容器都处于自己的小世界里面，当这个小世界需要与外界（宿主机或其他容器）通信的时候docker的网络就发挥作用了，这篇小作文我们一起来学习一下docker容器网络基础，这里我们会着重学习<code>bridge</code>模式的工作原理。</p>
+<hr>
+<p>docker提供了三个开箱即用的网络模式（驱动）<code>bridge</code>、<code>host</code> 和<code> none</code></p>
+<p>我们通过ls看一下相关信息：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon /]<span class="comment"># docker network ls </span></span><br><span class="line">NETWORK ID     NAME      DRIVER    SCOPE</span><br><span class="line">f33b32dd8351   bridge    bridge    <span class="built_in">local</span></span><br><span class="line">2c102587be2f   host      host      <span class="built_in">local</span></span><br><span class="line">04a61e996030   none      null      <span class="built_in">local</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="一、host与none模式"><a href="#一、host与none模式" class="headerlink" title="一、host与none模式"></a>一、host与none模式</h4><p>在host模式下，容器共享主机的网络命名空间，直接将其暴露给外界。同时主机名与宿主机一致。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker run -it --name busybox_host --net host busybox</span></span><br><span class="line">/ <span class="comment"># ip addr</span></span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">    inet6 ::1/128 scope host </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">2: ens192: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq qlen 1000</span><br><span class="line">    link/ether 00:0c:29:45:89:e6 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 192.168.1.123/24 brd 192.168.1.255 scope global noprefixroute ens192</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">    inet6 fe80::806e:979a:d38f:a85b/64 scope link noprefixroute </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line"></span><br><span class="line">/ <span class="comment"># hostname</span></span><br><span class="line">localhost</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>host模式主要用于对网络性能要求高、追求传输效率的服务，但是需要注意的是会占用主机的端口，多个容器工作可能需要处理冲突。</p>
+<p>none模式下，不配置网络，并且<strong>无法访问外部网络以及其他容器</strong>，对于不需要网络访问的容器很有用，比如批处理应用，密码管理等等。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker run -it --name busybox_none --net none busybox</span></span><br><span class="line">/ <span class="comment"># ip addr</span></span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h4 id="二、bridge模式及其工作原理"><a href="#二、bridge模式及其工作原理" class="headerlink" title="二、bridge模式及其工作原理"></a>二、bridge模式及其工作原理</h4><h5 id="1-默认和自定义bridge网络"><a href="#1-默认和自定义bridge网络" class="headerlink" title="1.默认和自定义bridge网络"></a>1.默认和自定义bridge网络</h5><p><code>bridge</code>是docker默认网络模式，docker安装后会选择一个私有网段作为bridge的子网，从下面<code>config</code>中可以看到我们的16位掩码的子网是172.17.0.0/16，这样在我们创建容器时默认会将容器网络加入到这个子网中。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker inspect bridge</span></span><br><span class="line">[</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="string">&quot;Name&quot;</span>: <span class="string">&quot;bridge&quot;</span>,</span><br><span class="line">        <span class="string">&quot;Id&quot;</span>: <span class="string">&quot;f33b32dd835100abc5c94855d3676b082ef6f0ebea10847425fbe6187d263823&quot;</span>,</span><br><span class="line">        <span class="string">&quot;Created&quot;</span>: <span class="string">&quot;2021-08-09T21:41:49.031849089-04:00&quot;</span>,</span><br><span class="line">        <span class="string">&quot;Scope&quot;</span>: <span class="string">&quot;local&quot;</span>,</span><br><span class="line">        <span class="string">&quot;Driver&quot;</span>: <span class="string">&quot;bridge&quot;</span>,</span><br><span class="line">        <span class="string">&quot;EnableIPv6&quot;</span>: <span class="literal">false</span>,</span><br><span class="line">        <span class="string">&quot;IPAM&quot;</span>: &#123;</span><br><span class="line">            <span class="string">&quot;Driver&quot;</span>: <span class="string">&quot;default&quot;</span>,</span><br><span class="line">            <span class="string">&quot;Options&quot;</span>: null,</span><br><span class="line">            <span class="string">&quot;Config&quot;</span>: [</span><br><span class="line">                &#123;</span><br><span class="line">                    <span class="string">&quot;Subnet&quot;</span>: <span class="string">&quot;172.17.0.0/16&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;Gateway&quot;</span>: <span class="string">&quot;172.17.0.1&quot;</span></span><br><span class="line">                &#125;</span><br><span class="line">            ]</span><br><span class="line">        &#125;,</span><br><span class="line">        <span class="string">&quot;Internal&quot;</span>: <span class="literal">false</span>,</span><br><span class="line">        <span class="string">&quot;Attachable&quot;</span>: <span class="literal">false</span>,</span><br><span class="line">        <span class="string">&quot;Ingress&quot;</span>: <span class="literal">false</span>,</span><br><span class="line">        <span class="string">&quot;ConfigFrom&quot;</span>: &#123;</span><br><span class="line">            <span class="string">&quot;Network&quot;</span>: <span class="string">&quot;&quot;</span></span><br><span class="line">        &#125;,</span><br><span class="line">        <span class="string">&quot;ConfigOnly&quot;</span>: <span class="literal">false</span>,</span><br><span class="line">        <span class="string">&quot;Containers&quot;</span>: &#123;&#125;,</span><br><span class="line">        <span class="string">&quot;Options&quot;</span>: &#123;</span><br><span class="line">            <span class="string">&quot;com.docker.network.bridge.default_bridge&quot;</span>: <span class="string">&quot;true&quot;</span>,</span><br><span class="line">            <span class="string">&quot;com.docker.network.bridge.enable_icc&quot;</span>: <span class="string">&quot;true&quot;</span>,</span><br><span class="line">            <span class="string">&quot;com.docker.network.bridge.enable_ip_masquerade&quot;</span>: <span class="string">&quot;true&quot;</span>,</span><br><span class="line">            <span class="string">&quot;com.docker.network.bridge.host_binding_ipv4&quot;</span>: <span class="string">&quot;0.0.0.0&quot;</span>,</span><br><span class="line">            <span class="string">&quot;com.docker.network.bridge.name&quot;</span>: <span class="string">&quot;docker0&quot;</span>,</span><br><span class="line">            <span class="string">&quot;com.docker.network.driver.mtu&quot;</span>: <span class="string">&quot;1500&quot;</span></span><br><span class="line">        &#125;,</span><br><span class="line">        <span class="string">&quot;Labels&quot;</span>: &#123;&#125;</span><br><span class="line">    &#125;</span><br><span class="line">]</span><br></pre></td></tr></table></figure>
+
+<p>上面<code>Containers</code>字段中并为包含容器，现在我们创建一个<code>busybox</code>工具箱容器,通过inspect分别查看<code>bridge</code>和<code>容器</code>信息，显然172.17.0.1在子网172.17.0.0/16下。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker run -d -t --name busybox busybox</span></span><br><span class="line">[root@bogon proc]<span class="comment"># docker inspect bridge</span></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">        <span class="string">&quot;Containers&quot;</span>: &#123;</span><br><span class="line">            <span class="string">&quot;b6f1e0103c1b44f76cd31fb75a3d9537f3292e5390e4441db2376e7e13d31ed2&quot;</span>: &#123;</span><br><span class="line">                <span class="string">&quot;Name&quot;</span>: <span class="string">&quot;busybox&quot;</span>,</span><br><span class="line">                <span class="string">&quot;EndpointID&quot;</span>: <span class="string">&quot;caac0bd4feedd0ac483fa44155c46e6c07d72e1d6281ca43599d5e72018f8066&quot;</span>,</span><br><span class="line">                <span class="string">&quot;MacAddress&quot;</span>: <span class="string">&quot;02:42:ac:11:00:02&quot;</span>,</span><br><span class="line">                <span class="string">&quot;IPv4Address&quot;</span>: <span class="string">&quot;172.17.0.2/16&quot;</span>,</span><br><span class="line">                <span class="string">&quot;IPv6Address&quot;</span>: <span class="string">&quot;&quot;</span></span><br><span class="line">            &#125;</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">[root@bogon proc]<span class="comment"># docker inspect b6f</span></span><br><span class="line">...</span><br><span class="line">          <span class="string">&quot;Networks&quot;</span>: &#123;</span><br><span class="line">                <span class="string">&quot;bridge&quot;</span>: &#123;</span><br><span class="line">                    <span class="string">&quot;IPAMConfig&quot;</span>: null,</span><br><span class="line">                    <span class="string">&quot;Links&quot;</span>: null,</span><br><span class="line">                    <span class="string">&quot;Aliases&quot;</span>: null,</span><br><span class="line">                    <span class="string">&quot;NetworkID&quot;</span>: <span class="string">&quot;f33b32dd835100abc5c94855d3676b082ef6f0ebea10847425fbe6187d263823&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;EndpointID&quot;</span>: <span class="string">&quot;caac0bd4feedd0ac483fa44155c46e6c07d72e1d6281ca43599d5e72018f8066&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;Gateway&quot;</span>: <span class="string">&quot;172.17.0.1&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;IPAddress&quot;</span>: <span class="string">&quot;172.17.0.2&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;IPPrefixLen&quot;</span>: 16,</span><br><span class="line">                    <span class="string">&quot;IPv6Gateway&quot;</span>: <span class="string">&quot;&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;GlobalIPv6Address&quot;</span>: <span class="string">&quot;&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;GlobalIPv6PrefixLen&quot;</span>: 0,</span><br><span class="line">                    <span class="string">&quot;MacAddress&quot;</span>: <span class="string">&quot;02:42:ac:11:00:02&quot;</span>,</span><br><span class="line">                    <span class="string">&quot;DriverOpts&quot;</span>: null</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>从上面我们可以看到使用默认<code>bridge</code>模式非常简单，当然在生产中我们一般会手动创建一个bridge，然后将容器加入到这个网络，以防不必要的容器被加入到生产子网中。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker network create --driver bridge --subnet 172.0.0.0/24 --gateway 172.0.0.1 newbridge</span></span><br><span class="line">1b1bc5ffe581472c098418ddaafc38fbdc101ef55d840d4be55b882242bca552</span><br><span class="line">[root@bogon proc]<span class="comment"># docker network ls </span></span><br><span class="line">NETWORK ID     NAME        DRIVER    SCOPE</span><br><span class="line">f33b32dd8351   bridge      bridge    <span class="built_in">local</span></span><br><span class="line">2c102587be2f   host        host      <span class="built_in">local</span></span><br><span class="line">1b1bc5ffe581   newbridge   bridge    <span class="built_in">local</span></span><br><span class="line">04a61e996030   none        null      <span class="built_in">local</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>–dirver、–subnet、–gateway分别指定我们的驱动、子网和网关</p>
+<p>我们已经创建好了一个新的bridge网络，这样我们在创建容器的时候使用–net参数就可以加入到这个网络。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker run -d -t --net newbridge --name busybox_newbridge busybox</span></span><br></pre></td></tr></table></figure>
+
+<p>以上我们大概了解了创建一个<code>bridge</code>网络和使用，但是我们不了解其工作原理，这不太棒。</p>
+<h5 id="2-bridge网络工作原理"><a href="#2-bridge网络工作原理" class="headerlink" title="2.bridge网络工作原理"></a>2.bridge网络工作原理</h5><p>我们从下面这张图展开bridge网络工作原理</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210810154854211.png" alt="image-20210810154854211"></p>
+<p>我们安装Docker后守护进程将创建一个linux虚拟以太网桥docker0，它会在连接到其上的所有接口之间转发数据包，默认情况下主机上的所有容器都连接到这个内部桥接器，它会将一个接口（虚拟设备对<strong>veth pair</strong>）作为容器的eth0接口和主机命名空间中的另一个接口。这样容器就获得了私有 IP 地址分配。同时为了防止本地网络上的 ARP 冲突，Docker 守护进程从分配的 IP 地址上生成一个随机 MAC 地址。这样一来容器就和网桥连接起来了，然后通过iptables NAT规则和主机上eth0网卡交换数据。</p>
+<p><strong>veth pair</strong>我们可以理解为一条虚拟网络电缆，其两端都有一个虚拟网络接口设备。</p>
+<p>接下来我们从实际中来看一看。使用brctl show来查看linux网桥和接口。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># brctl show</span></span><br><span class="line">bridge name	     bridge id		     STP enabled	   interfaces</span><br><span class="line">br-1b1bc5ffe581	8000.024297a8cc80	     no		       vethe19101d</span><br><span class="line">docker0		    8000.02426da67767	     no		       veth53e494e</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>可以看到我们默认的docker0和手动创建的newbridge对应的br-1b这两个网桥上分别接了vethe19101d和veth53e494e，为了方便下面咋们只关注docker0网桥。</p>
+<p>同样我们也可以通过ip addr来查看接口信息，veth53e494e所属的网桥正是docker0</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210810152747249.png" alt="image-20210810152747249"></p>
+<p>我们进入busybox容器看看，同样的存在接口eth0@if19</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">/ <span class="comment"># ip addr</span></span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">18: eth0@if19: &lt;BROADCAST,MULTICAST,UP,LOWER_UP,M-DOWN&gt; mtu 1500 qdisc noqueue </span><br><span class="line">    link/ether 02:42:ac:11:00:02 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 172.17.0.2/16 brd 172.17.255.255 scope global eth0</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>如此一来我们的虚拟设备对<strong>veth pair</strong>就成了，网桥与容器的通信水到渠成。最后容器怎么通过网桥与外界通信呢？</p>
+<p>我们来查看iptables nat规则：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># iptables -t nat -vnL</span></span><br><span class="line">...</span><br><span class="line">Chain POSTROUTING (policy ACCEPT 184 packets, 14201 bytes)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination         </span><br><span class="line">    0     0 MASQUERADE  all  --  *      !docker0  172.17.0.0/16        0.0.0.0/0           </span><br><span class="line">    0     0 MASQUERADE  all  --  *      !br-1b1bc5ffe581  172.0.0.0/24         0.0.0.0/0</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>POSTROUTING链会将所有来自172.17.0.0/16、172.0.0.0/24的流量伪装为宿主机网卡发出。即容器的流量通过NAT后服务端并没有感知，只知道是源自宿主机网卡的流量，相当于SNAT。</p>
+<p>我们在看看DNAT，这里我们启动一个端口映射容器</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@bogon proc]<span class="comment"># docker run -d -p 8888:80 httpd</span></span><br></pre></td></tr></table></figure>
+
+<p>此时通过tcp/8888端口的流量已经被转发到了172.17.0.3:80，这也是为什么在使用docker是需要开启net.ipv4.ip_forward转发。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Chain DOCKER (2 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination         </span><br><span class="line">    0     0 RETURN     all  --  docker0 *       0.0.0.0/0            0.0.0.0/0           </span><br><span class="line">    0     0 RETURN     all  --  br-1b1bc5ffe581 *       0.0.0.0/0            0.0.0.0/0           </span><br><span class="line">    0     0 DNAT       tcp  --  !docker0 *       0.0.0.0/0            0.0.0.0/0            tcp dpt:8888 to:172.17.0.3:80</span><br></pre></td></tr></table></figure>
+
+<p>bridge网络模式大致到这里。容器的实现有太多linux细节，博大精深，关于网络部分水更深，本文只是冰山一角，有兴趣的同志可以通过搜索引擎遨游知识海洋。欢迎关注查看后面关于容器网络驱动Overlay、macvlan的小作文。</p>
+<hr>
+<p>博客<a href="iqsing.github.io">iqsing.github.io</a></p>
+<p><strong>您可以随意转载、修改、发布本文章，无需经过本人同意。</strong></p>
+<h4 id="NEXT"><a href="#NEXT" class="headerlink" title="NEXT"></a>NEXT</h4><ul>
+<li>docker容器网络Overlay</li>
+<li>docker容器网络macvlan</li>
+</ul>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/" title="docker容器网络bridge" target="_blank" rel="external">https://iqsing.github.io/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/08/12/docker%E5%AE%B9%E5%99%A8%E5%AD%98%E5%82%A8/" title="docker容器存储"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/" title="docker容器技术基础之联合文件系统OverlayFS">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>k8s工作负载资源之deployment | qsing`s blog</title>
+  <meta name="description" content="首先我们要理解：一个应用跑在k8s集群上了，那么这个应用就是一个工作负载（workloads）。 在k8s中会用pod的来承载这个应用，那么负责管理这个pod的东西就叫工作负载资源（workload resources）。 我们可以简单理解为是这样的：  工作负载资源又支持jj自定义或使用第三方资源，这里我们先认识内置的，k8s内置工作负载资源包含如下：  deployment replicase">
+<meta property="og:type" content="article">
+<meta property="og:title" content="k8s工作负载资源之deployment">
+<meta property="og:url" content="https://iqsing.github.io/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="首先我们要理解：一个应用跑在k8s集群上了，那么这个应用就是一个工作负载（workloads）。 在k8s中会用pod的来承载这个应用，那么负责管理这个pod的东西就叫工作负载资源（workload resources）。 我们可以简单理解为是这样的：  工作负载资源又支持jj自定义或使用第三方资源，这里我们先认识内置的，k8s内置工作负载资源包含如下：  deployment replicase">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918102050547.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918111755912.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918154910640.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918144005483.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210920204824833.png">
+<meta property="article:published_time" content="2021-09-22T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.969Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="deployment">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918102050547.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-k8s工作负载资源之deployment" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      k8s工作负载资源之deployment
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/" class="article-date">
+	  <time datetime="2021-09-22T16:47:21.000Z" itemprop="datePublished">2021-09-23</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/k8s/">k8s</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/deployment/" rel="tag">deployment</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 2.2k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 9(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>首先我们要理解：一个应用跑在k8s集群上了，那么这个应用就是一个<strong>工作负载（<em>workloads</em>）。</strong></p>
+<p>在k8s中会用pod的来承载这个应用，那么负责管理这个pod的东西就叫<strong>工作负载资源（<em>workload resources</em>）</strong>。</p>
+<p>我们可以简单理解为是这样的：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918102050547.png" alt="image-20210918102050547"></p>
+<p>工作负载资源又支持jj自定义或使用第三方资源，这里我们先认识内置的，k8s内置工作负载资源包含如下：</p>
+<ul>
+<li>deployment</li>
+<li>replicaset</li>
+<li>statefulset</li>
+<li>daemonset</li>
+<li>jobs</li>
+<li>cronjob</li>
+<li>TTL Controller for Finished Resources</li>
+<li>ReplicationController （逐步被ReplicaSet替代）</li>
+</ul>
+<hr>
+<p><strong>那让我们从最常用的deployment开始吧。</strong></p>
+<p><strong>一个 <em>Deployment</em> 为 Pods和 ReplicaSets提供声明式的更新能力，我们从下面几个方面开始上手：</strong></p>
+<ol>
+<li><strong>创建 Deployment 将 ReplicaSet 上线。</strong> ReplicaSet 在后台创建 Pods。 检查 ReplicaSet 的上线状态，查看其是否成功。</li>
+<li>**通过更新 Deployment 的 Pod模板（TemplateSpec），声明 Pod 的新状态 。 **新的 ReplicaSet 会被创建，Deployment 以受控速率将 Pod 从旧 ReplicaSet 迁移到新 ReplicaSet。 每个新的 ReplicaSet 都会更新到 Deployment 的修订版本。</li>
+<li><strong>如果 Deployment 与你的预期不符，可以回滚到较早的 Deployment 版本</strong>。 每次回滚都会更新到 Deployment 修订的新版本。</li>
+<li><strong>通过Deployment 扩大应用规模承担更多负载</strong>。</li>
+<li><strong>暂停 Deployment ，对 PodTemplateSpec 做修改然后恢复执行，让pod更新到新版本。</strong></li>
+</ol>
+<hr>
+<h3 id="deployment创建"><a href="#deployment创建" class="headerlink" title="deployment创建"></a>deployment创建</h3><p>说了这么多还不如手动写一个deployment的yml声明实在（如果你喜欢json也可以是json格式，本质上还是将yml转换为json格式请求的api）。</p>
+<p>下面deployment创建了一个replicaset，这个replicaset将会启动三个nginx的pod：</p>
+<p>nginx-deployment.yml </p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">nginx-deployment</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">nginx</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">nginx-web</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">nginx:latest</span></span><br><span class="line">        <span class="attr">ports:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">80</span></span><br></pre></td></tr></table></figure>
+
+<p>通过kubectl apply 将声明文件转换为api提交给apiserver</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl apply -f nginx-deployment.yml</span> </span><br><span class="line">deployment.apps/nginx-deployment created</span><br></pre></td></tr></table></figure>
+
+<p>查看deployment资源创建的对象nginx-deployment（这里的对象与编程语言中对象同义）</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get deployment</span></span><br><span class="line">NAME               READY   UP-TO-DATE   AVAILABLE   AGE</span><br><span class="line">nginx-deployment   3/3     3            3           67m</span><br></pre></td></tr></table></figure>
+
+<p>查看nginx-deplyment创建的replicat对象nginx-deployment-767cf44bff</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">kubectl get rs</span></span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-767cf44bff   3         3         3       68m</span><br></pre></td></tr></table></figure>
+
+<p>最后是nginx-deployment-767cf44bff创建的三个pod对象</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span> </span><br><span class="line"></span><br><span class="line">NAMESPACE     NAME                                READY   STATUS    RESTARTS   AGE</span><br><span class="line">default       nginx-deployment-767cf44bff-9fj8q   1/1     Running   0          13m</span><br><span class="line">default       nginx-deployment-767cf44bff-f746l   1/1     Running   0          13m</span><br><span class="line">default       nginx-deployment-767cf44bff-ktbzl   1/1     Running   0          13m</span><br></pre></td></tr></table></figure>
+
+<p>也可以通过rollout status 查看 Deployment 上线状态。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash">kubectl rollout status deployment/nginx-deployment</span></span><br><span class="line">deployment &quot;nginx-deployment&quot; successfully rolled out</span><br></pre></td></tr></table></figure>
+
+<p>这就是deployment资源创建对象的关系图：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918111755912.png" alt="image-20210918111755912"></p>
+<p>现在我们主要来看一下创建的这个nginx-deployment声明。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918154910640.png" alt="image-20210918154910640"></p>
+<p>我们把yml文件分为两个大部分（红色）：</p>
+<ul>
+<li><p>属性。</p>
+<ul>
+<li><code>apiVersion</code> - 创建该对象所使用的 Kubernetes API 的版本</li>
+<li><code>kind</code> - 想要创建的对象的类别</li>
+<li><code>metadata</code> - 帮助唯一性标识对象的一些数据，包括一个 <code>name</code> 字符串、UID 和可选的 <code>namespace</code></li>
+</ul>
+</li>
+<li><p>规格 spec（specification）</p>
+<ul>
+<li><code>replicas</code> - 期望的pod副本数量</li>
+<li><code>selector</code> - pod标签选择器</li>
+<li><code>template</code> - pod模板</li>
+</ul>
+<p><strong>我们在selector中匹配包含<code>app=nginx</code>标签的pod，pod模板中又为新创建的pod打上<code>app=nginx</code>的标签，这样就形成了控制闭环。</strong></p>
+</li>
+</ul>
+<p>我们通过可以show-labels查看pod的标签</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod  --show-labels</span></span><br><span class="line">NAME                                READY   STATUS    RESTARTS   AGE   LABELS</span><br><span class="line">nginx-deployment-767cf44bff-9fj8q   1/1     Running   0          81m   app=nginx,pod-template-hash=767cf44bff</span><br><span class="line">nginx-deployment-767cf44bff-f746l   1/1     Running   0          81m   app=nginx,pod-template-hash=767cf44bff</span><br><span class="line">nginx-deployment-767cf44bff-ktbzl   1/1     Running   0          81m   app=nginx,pod-template-hash=767cf44bff</span><br></pre></td></tr></table></figure>
+
+<p><strong>为什么pod中又有一个<code>pod-template-hash</code>标签？</strong></p>
+<p>eployment 控制器将 <code>pod-template-hash</code> 标签添加到 Deployment 所创建的每一个 ReplicaSet 中。我们来看一下rs的selector描述：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl describe rs</span></span><br><span class="line">Name:           nginx-deployment-767cf44bff</span><br><span class="line">Namespace:      default</span><br><span class="line">Selector:       app=nginx,pod-template-hash=767cf44bff</span><br></pre></td></tr></table></figure>
+
+<p>pod-template-hash 标签是通过对 ReplicaSet 的 <code>PodTemplate</code> 进行哈希处理，此标签可确保 Deployment 的子 ReplicaSets 不冲突，所生成的哈希值被添加到 ReplicaSet的selector、Pod 模板labels、以及 ReplicaSet 旗下的任何 Pod 中。<strong>这样deployment下的replicaset只能控制自己的pod。恩，妙哉。</strong></p>
+<p>不同工作负载资源所创建的对象，spec是不同的。比如在Deployment中spec可以包含如下字段，这个可以在<a target="_blank" rel="noopener" href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.22/#deployment-v1-apps">Kubernetes API</a>中找到。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210918144005483.png" alt="image-20210918144005483"></p>
+<p>大多数字段都包含了一个默认值，除非有特殊需求，大多数时候很难被用到。如果需要的时候你再谷歌一下也不迟。到这里deployment工作负载的第一个用例已经成了。</p>
+<hr>
+<h3 id="deployment更新"><a href="#deployment更新" class="headerlink" title="deployment更新"></a>deployment更新</h3><p>仅当 Deployment Pod 模板（即 <code>.spec.template</code>字段）发生改变时，例如模板的标签或容器镜像被更新， 才会触发 Deployment 上线。</p>
+<p> 其他更新（如对 Deployment 执行扩缩容的操作）不会触发上线动作。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210920204824833.png" alt="image-20210920204824833"></p>
+<ol>
+<li><strong>我们可以通过<code>kubectl set </code>命令更新现有工作负责资源</strong></li>
+</ol>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl <span class="built_in">set</span> image deployment/nginx-deployment nginx-web=nginx:1.17 --record</span></span><br><span class="line">deployment.apps/nginx-deployment image updated</span><br></pre></td></tr></table></figure>
+
+<p><code>--record</code> 用于记录kubectl对资源的操作。便于后期需要时回滚。下面会说到。</p>
+<p>kubectl set -h 查询set支持更新的内容。</p>
+<p>Available Commands:</p>
+<ul>
+<li>env            Update environment variables on a pod template</li>
+<li>image          Update image of a pod template<br>  resources      Update resource requests/limits on objects with pod templates</li>
+<li>  selector       Set the selector on a resource</li>
+<li>  serviceaccount Update ServiceAccount of a resource</li>
+<li>  subject        Update User, Group or ServiceAccount in a RoleBinding/ClusterRoleBinding</li>
+</ul>
+<ol start="2">
+<li><strong>使用<code>kubectl edit</code>编辑deployment后自动更新</strong></li>
+</ol>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl edit deployment/nginx-deployment --record</span></span><br><span class="line">deployment.apps/nginx-deployment edited</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li><strong>直接更新deployment yml文件</strong></li>
+</ol>
+<p><strong>个人觉得最好的方式是更新yml声明文件，通过kubectl apply 应用即可，这样你只要管理好你的的nginx-deployment.yml做到心中有数</strong></p>
+<p>当我们更新后查看rs状态，此时deployment 创建了一个新的nginx-deployment replicaset并投入使用。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get rs</span></span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-64f9765d86   4         4         4       4h11m</span><br><span class="line">nginx-deployment-6cf9cc9c9d   0         0         0       5h6m</span><br></pre></td></tr></table></figure>
+
+<p>这里顺便看一下deployment中pod滚动更新策略</p>
+<p>我们可以通过kubectl describe deployment 查看RollingUpdateStrategy字段，即在滚动更新时最大不可用pod数为1/4，最大可用pod数为期望副本数1.25倍（多25%）。</p>
+<p><strong>RollingUpdateStrategy:  25% max unavailable, 25% max surge</strong></p>
+<p>假如我们将 deployment_A 中4个副本（pod）更新到deployment_B（也是4副本）,其中的某个数据pod状态如下</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get pod</span> </span><br><span class="line">NAME                                READY   STATUS              RESTARTS   AGE</span><br><span class="line">nginx-deployment-64f9765d86-c9rlj   0/1     ContainerCreating   0          2s</span><br><span class="line">nginx-deployment-64f9765d86-wngmx   0/1     ContainerCreating   0          2s</span><br><span class="line">nginx-deployment-7fcdcb4b75-lmsmm   1/1     Running             0          4h6m</span><br><span class="line">nginx-deployment-7fcdcb4b75-m99tx   1/1     Terminating         0          4h5m</span><br><span class="line">nginx-deployment-7fcdcb4b75-tghb2   1/1     Running             0          4h5m</span><br><span class="line">nginx-deployment-7fcdcb4b75-xfs2m   1/1     Running             0          4h6m</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>即只有1个在停止，正在创建2个新pod（即将有5个可用），详细滚动过程可通过<code>kubectl descibe deployment</code>中events查看。</p>
+<p>尽量不要更新模板中labels，会造成pod孤立。在某些API版本已经被禁止了。</p>
+<hr>
+<h3 id="deployment回滚"><a href="#deployment回滚" class="headerlink" title="deployment回滚"></a>deployment回滚</h3><p>deployment回滚和更新一样，Pod 模板部分会被回滚。</p>
+<p>我们通过 rollout history 来查看某个deployment的历史版本。即之前通过<code>--record</code>所记录的。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl  rollout <span class="built_in">history</span>   deployment/nginx-deployment</span> </span><br><span class="line">deployment.apps/nginx-deployment </span><br><span class="line">REVISION  CHANGE-CAUSE</span><br><span class="line">1         &lt;none&gt;</span><br><span class="line">2         &lt;none&gt;</span><br><span class="line">3         kubectl apply --filename=nginx-deployment.yml --record=true</span><br><span class="line">4         kubectl apply --filename=nginx-deployment.yml --record=true</span><br><span class="line">5         kubectl set image deployment/nginx-deployment nginx-web=nginx:1.17 --record=true</span><br><span class="line">9         kubectl edit deployment/nginx-deployment --record=true</span><br><span class="line">10        kubectl edit deployment/nginx-deployment --record=true</span><br></pre></td></tr></table></figure>
+
+<p>回滚到第5个版本。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl rollout undo deployment/nginx-deployment --to-revision=5</span></span><br><span class="line">deployment.apps/nginx-deployment rolled back</span><br></pre></td></tr></table></figure>
+
+<p>或者直接回滚到上一个版本。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl rollout undo deployment/nginx-deployment</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>还是如前面所说，回滚只一种更工程化的说法，其实回滚也是一种更新，yml声明依然是核心。所以我们更应该关注的对deployment的yml文件的版本控制。</strong></p>
+<hr>
+<h3 id="deployment缩放"><a href="#deployment缩放" class="headerlink" title="deployment缩放"></a>deployment缩放</h3><p>缩放控制的是<code>.spec.replicas</code>,也可通过scale命令操作。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl scale deployment/nginx-deployment --replicas=6</span></span><br><span class="line">deployment.apps/nginx-deployment scaled</span><br></pre></td></tr></table></figure>
+<p>水平自动缩放本为暂不涉及，后面文章会详细讨论。可以参考：<a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/">Horizontal Pod Autoscaler</a></p>
+<hr>
+<h3 id="deployment暂停与恢复"><a href="#deployment暂停与恢复" class="headerlink" title="deployment暂停与恢复"></a>deployment暂停与恢复</h3><p>我们可以在触发更新之前暂停 Deployment，然后做多个修改之后再恢复，进行一次性上线。</p>
+<p>还是我们之前的deployment</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get deploy</span></span><br><span class="line">NAME               READY   UP-TO-DATE   AVAILABLE   AGE</span><br><span class="line">nginx-deployment   4/4     4            4           30m</span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl get rs</span></span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-64f9765d86   4         4         4       30m</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>暂停deployment</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl rollout pause deployment/nginx-deployment</span></span><br><span class="line">error: deployments.apps &quot;nginx-deployment&quot; is already paused</span><br></pre></td></tr></table></figure>
+
+<p>对nginx-deployment做一些更新</p>
+<ol>
+<li>直接修改yml文件，更新镜像为nginx:1.17，并通过kubectl apply应用更改。</li>
+<li>通过set做资源限制。</li>
+</ol>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl <span class="built_in">set</span> resources deployment/nginx-deployment -c=nginx-web --limits=cpu=50m,memory=100Mi</span></span><br><span class="line">deployment.apps/nginx-deployment resource requirements updated</span><br></pre></td></tr></table></figure>
+
+<p>此时我们查看rs副本状态，查看deployment版本信息</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get rs</span> </span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-64f9765d86   4         4         4       40m</span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="meta">$</span><span class="bash"> kubectl rollout <span class="built_in">history</span> deployment/nginx-deployment</span></span><br><span class="line">deployment.apps/nginx-deployment </span><br><span class="line">REVISION  CHANGE-CAUSE</span><br><span class="line">1         &lt;none&gt;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到还是之前的rs，deployment并没有将我们的修改应用到对象中。</p>
+<p>现在我们将deployment通过Resume恢复</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl rollout resume deployment/nginx-deployment</span></span><br><span class="line">deployment.apps/nginx-deployment resumed</span><br></pre></td></tr></table></figure>
+
+<p>查看rs状态</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl get rs</span> </span><br><span class="line">NAME                          DESIRED   CURRENT   READY   AGE</span><br><span class="line">nginx-deployment-64f9765d86   3         3         3       41m</span><br><span class="line">nginx-deployment-7f4447656b   2         2         0       4s</span><br></pre></td></tr></table></figure>
+
+<p>这会deployment已恢复，并应用了对资源对象的更新。</p>
+<hr>
+<h3 id="参考："><a href="#参考：" class="headerlink" title="参考："></a>参考：</h3><p>k8s官方文档<a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/workloads/controllers/deployment/">Deployment</a></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/" title="k8s工作负载资源之deployment" target="_blank" rel="external">https://iqsing.github.io/2021/09/23/k8s%E5%B7%A5%E4%BD%9C%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90%E4%B9%8Bdeployment/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/09/27/k8s%E8%B4%9F%E8%BD%BD%E8%B5%84%E6%BA%90StatefulSet%E5%B7%A5%E4%BD%9C%E7%BB%86%E8%8A%82/" title="k8s负载资源StatefulSet工作细节"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/09/14/K8s%E5%B7%A5%E4%BD%9C%E6%B5%81%E7%A8%8B%E8%AF%A6%E8%A7%A3/" title="K8s工作流程详解">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

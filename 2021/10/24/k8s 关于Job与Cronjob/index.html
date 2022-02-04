@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>k8s关于Job与Cronjob | qsing`s blog</title>
+  <meta name="description" content="在Kubernetes 中通过创建工作负载资源 Job 可完成大型计算以及一些批处理任务。比如 Job 转码文件、获取部分文件和目录，机器学习中的训练任务等。这篇小作文我们一起来了解 k8s 中关于 job、cronjob 的内容。  Job创建我们可以通过API版本 batch&#x2F;v1创建出一个简单的k8s Job 12345678910111213#new-job.ymlapiVersion:">
+<meta property="og:type" content="article">
+<meta property="og:title" content="k8s关于Job与Cronjob">
+<meta property="og:url" content="https://iqsing.github.io/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="在Kubernetes 中通过创建工作负载资源 Job 可完成大型计算以及一些批处理任务。比如 Job 转码文件、获取部分文件和目录，机器学习中的训练任务等。这篇小作文我们一起来了解 k8s 中关于 job、cronjob 的内容。  Job创建我们可以通过API版本 batch&#x2F;v1创建出一个简单的k8s Job 12345678910111213#new-job.ymlapiVersion:">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220152228.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220112509.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220329267.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023224555309.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023223943399.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023231642032.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023235914663.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211024005056600.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211024013232637.png">
+<meta property="article:published_time" content="2021-10-23T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.944Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="job">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220152228.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-k8s 关于Job与Cronjob" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      k8s关于Job与Cronjob
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/" class="article-date">
+	  <time datetime="2021-10-23T16:47:21.000Z" itemprop="datePublished">2021-10-24</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/k8s/">k8s</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/job/" rel="tag">job</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 1.4k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 6(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>在Kubernetes 中通过创建工作负载资源 Job 可完成大型计算以及一些批处理任务。比如 Job 转码文件、获取部分文件和目录，机器学习中的训练任务等。这篇小作文我们一起来了解 k8s 中关于 job、cronjob 的内容。</p>
+<hr>
+<h3 id="Job创建"><a href="#Job创建" class="headerlink" title="Job创建"></a>Job创建</h3><p>我们可以通过API版本 <code>batch/v1</code>创建出一个简单的k8s Job</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#new-job.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Job</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">command-job</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">command-job</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">        <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;sleep 5;echo &#x27;job one&#x27;&quot;</span>]</span><br><span class="line">      <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br></pre></td></tr></table></figure>
+
+<p>Job对象 将会启动一个pod用于完成我们的工作–睡眠5s，接着输出 job one</p>
+<p>应用job定义，查看job工作工作状态：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> kubectl apply -f new-job.yml</span> </span><br><span class="line">job.batch/command-job created</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220152228.png" alt="image-20211023220152228"></p>
+<p>任务完成后，pod状态被置为Completed：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220112509.png" alt="image-20211023220112509"></p>
+<p>通过logs查看我们的任务执行结果：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023220329267.png" alt="image-20211023220329267"></p>
+<hr>
+<h3 id="Job重启与失败认定"><a href="#Job重启与失败认定" class="headerlink" title="Job重启与失败认定"></a>Job重启与失败认定</h3><p>在上面我们的例子中，job pod顺利的完成了我们的任务。当pod在执行作业时，容器可能会由于一些原因启动失败，比如进程以非0代码退出或超出内存限制等。在pod模板中可以通过<code>restartPolicy</code>控制job pod的重启策略。</p>
+<p><strong>重启策略（restartPolicy）：</strong></p>
+<ul>
+<li>Never：pod启动失败时不会重启，而是通过<code>job-controller</code>重新创建pod供节点调度。</li>
+<li>OnFailure：pod将会在节点重启执行任务。</li>
+</ul>
+<p><strong>失败回退策略（backoffLimit）：</strong></p>
+<p>当Job pod 经过多次重启无果，显然我们应该认定这个Job是一个失败任务，默认失败认定重启次数为6，我们可以通过在spec中添加<code>backoffLimit</code>来改变这一认定。</p>
+<p>我们调整new-job.yml如下：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#new-job.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Job</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">command-job-two</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">command-job-two</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">        <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;sleep 5;echo &#x27;job two&#x27;;exit 1&quot;</span>]</span><br><span class="line">      <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br><span class="line">  <span class="attr">backoffLimit:</span> <span class="number">2</span></span><br></pre></td></tr></table></figure>
+
+<p>我们通过<code>describe</code>查看创建的Job</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023224555309.png" alt="image-20211023224555309"></p>
+<p><code>job-controller</code>经过2次重建pod达到阈值，<code>job-controller</code>认定本次Job为失败工作流。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023223943399.png" alt="image-20211023223943399"></p>
+<p>在重启策略为<code>Never</code>时，认定失败的Job会将pod遗留在节点上。</p>
+<hr>
+<h3 id="Job-期限与清理"><a href="#Job-期限与清理" class="headerlink" title="Job 期限与清理"></a>Job 期限与清理</h3><p>除了Job执行结束与重启失败认定的Job 终止外还可以通过配置活跃期限（activeDeadlineSeconds）来自动停止Job任务。</p>
+<p> 我们可以为 Job 的 <code>.spec.activeDeadlineSeconds</code> 设置一个秒数值。 该值适用于 Job 的整个生命期，无论 Job 创建了多少个 Pod。 一旦 Job 运行时间达到 <code>activeDeadlineSeconds</code> 秒，其所有运行中的 Pod 都会被终止，并且 Job 的状态更新为 <code>type: Failed</code> 及 <code>reason: DeadlineExceeded</code>。</p>
+<p>注意 Job 的 <code>.spec.activeDeadlineSeconds</code> 优先级高于其 <code>.spec.backoffLimit</code> 设置。 因此，如果一个 Job 正在重试一个或多个失效的 Pod，该 Job 一旦到达 <code>activeDeadlineSeconds</code> 所设的时限即不再部署额外的 Pod，即使其重试次数还未 达到 <code>backoffLimit</code> 所设的限制。</p>
+<p>调整new-job.yml如下：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#new-job.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Job</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">command-job-three</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">command-job-three</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">        <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;sleep 50;echo &#x27;job three&#x27;&quot;</span>]</span><br><span class="line">      <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br><span class="line">  <span class="attr">backoffLimit:</span> <span class="number">2</span></span><br><span class="line">  <span class="attr">activeDeadlineSeconds:</span> <span class="number">10</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>虽然是50s的任务，但是由于<code>activeDeadlineSeconds</code>的限制,Job运行10s后被终止</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023231642032.png" alt="image-20211023231642032"></p>
+<p>清理job和终止相似，我们可以通过添加<code>spec.ttlSecondsAfterFinished</code>使Job在任务完成后一段时间内被清理，读者感兴趣可动手尝试一下。</p>
+<hr>
+<h3 id="Job-任务类型"><a href="#Job-任务类型" class="headerlink" title="Job 任务类型"></a>Job 任务类型</h3><ul>
+<li><p><strong>非并行 Job</strong></p>
+<p>通常只启动一个 Pod，除非该 Pod 失败，Pod中应用成功运行完成即视为Job任务为完成状态，我们上面讨论的任务即属于此类。</p>
+</li>
+<li><p>**并行 Job **</p>
+<ul>
+<li><p><strong>指定任务数的并行 Job</strong></p>
+<p>通过<strong>spec.completions</strong>指定任务数，一旦所有 Pod 成功完成它的任务. 作业将完成。</p>
+<p>我们添加一个new-jobs.yml，并指定completions为3</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Job</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">command-jobs</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">command-jobs</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">        <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;sleep 50;echo &#x27;jobs &#x27;&quot;</span>]</span><br><span class="line">      <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br><span class="line">  <span class="attr">backoffLimit:</span> <span class="number">2</span></span><br><span class="line">  <span class="attr">completions:</span> <span class="number">3</span></span><br></pre></td></tr></table></figure>
+
+<p>当3个Pod都运行完成时，Job状态为成功执行。</p>
+</li>
+</ul>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211023235914663.png" alt="image-20211023235914663"></p>
+<p>   我们可以从Job pod 运行过程中看到次模式中Pod 创建存在先后顺序，即需要等待一个job完成后，开启下一个Job的运行。</p>
+<ul>
+<li><p><strong>工作队列式的并行 Job</strong></p>
+<p>一旦一个 Pod 成功终止则所有 Pod 都都终止，此时Job 成功完成。</p>
+<p>修改new-jobs.yml，并添加parallelism使其并行数为5</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Job</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">command-jobs</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">command-jobs</span></span><br><span class="line">        <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">        <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;sleep 50;echo &#x27;jobs &#x27;&quot;</span>]</span><br><span class="line">      <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br><span class="line">  <span class="attr">backoffLimit:</span> <span class="number">2</span></span><br><span class="line">  <span class="attr">parallelism:</span> <span class="number">5</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>此类Job Pod在同一时间创建和结束。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211024005056600.png" alt="image-20211024005056600"></p>
+</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h3 id="Cronjob周期性任务"><a href="#Cronjob周期性任务" class="headerlink" title="Cronjob周期性任务"></a>Cronjob周期性任务</h3><p>CronJob 用于执行周期性的动作，例如备份、邮件、报告生成等。</p>
+<p>cron时间配置与linux crontab相似。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">#      ┌────────────────── 时区 (可选)</span><br><span class="line">#      |      ┌───────────── 分钟 (0 - 59)</span><br><span class="line">#      |      │ ┌───────────── 小时 (0 - 23)</span><br><span class="line">#      |      │ │ ┌───────────── 月的某天 (1 - 31)</span><br><span class="line">#      |      │ │ │ ┌───────────── month (1 - 12)</span><br><span class="line">#      |      │ │ │ │ ┌───────────── 周的某天 (0 - 6)（周日到周一；在某些系统上，7 也是星期日）</span><br><span class="line">#      |      │ │ │ │ │                                </span><br><span class="line">#      |      │ │ │ │ │</span><br><span class="line">#      |      │ │ │ │ │</span><br><span class="line"># CRON_TZ=UTC * * * * *</span><br></pre></td></tr></table></figure>
+
+<p>添加cronjob.yml如下：</p>
+<figure class="highlight yml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#cronjob.yml</span></span><br><span class="line"><span class="attr">apiVersion:</span> <span class="string">batch/v1beta1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">CronJob</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">cronjob</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">schedule:</span> <span class="string">&quot;*/1 * * * *&quot;</span></span><br><span class="line">  <span class="attr">jobTemplate:</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">template:</span></span><br><span class="line">        <span class="attr">spec:</span></span><br><span class="line">          <span class="attr">containers:</span></span><br><span class="line">          <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">cronjob</span></span><br><span class="line">            <span class="attr">image:</span> <span class="string">busybox</span></span><br><span class="line">            <span class="attr">command:</span> [<span class="string">&quot;/bin/sh&quot;</span>,<span class="string">&quot;-c&quot;</span>,<span class="string">&quot;date&quot;</span>]</span><br><span class="line">          <span class="attr">restartPolicy:</span> <span class="string">Never</span></span><br></pre></td></tr></table></figure>
+
+<p>我们通过cronjob没隔一分钟打印一次日期。</p>
+<p>查看cronjob信息：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20211024013232637.png" alt="image-20211024013232637"></p>
+<p>通过logs查看任务结果：</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[docker@localhost yml]$ kubectl logs cronjob-1635010680-n5gxj</span><br><span class="line">Sat Oct 23 17:38:15 UTC 2021</span><br></pre></td></tr></table></figure>
+
+<p>cronjob可以自动清理任务，默认保留3次成功的任务，我们可以通过添加<code>.spec.successfulJobsHistoryLimit</code>改变保留的历史任务信息即Pod。</p>
+<hr>
+<p>以上我们将k8s中Job、Cronjob涉及的大部分内容进行了介绍。</p>
+<p>参考：</p>
+<p><a target="_blank" rel="noopener" href="https://kubernetes.io/zh/docs/concepts/workloads/controllers/job/">Job</a></p>
+<p><a target="_blank" rel="noopener" href="https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/">Running Automated Tasks with a CronJob</a></p>
+<p><strong>希望小作文对你有些许帮助，如果内容有误请指正。</strong></p>
+<p><strong>您可以随意转载、修改、发布本文，无需经过本人同意。亦可通过博客阅读本文</strong>：<a href="https://iqsing.github.io/">iqsing.github.io</a></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/" title="k8s关于Job与Cronjob" target="_blank" rel="external">https://iqsing.github.io/2021/10/24/k8s%20%E5%85%B3%E4%BA%8EJob%E4%B8%8ECronjob/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" title="k8s网络模型与集群通信"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/10/21/k8s%20DaemonSet%20%E4%BB%8B%E7%BB%8D%E4%B8%8E%E5%AE%9E%E4%BE%8B/" title="k8s DaemonSet 介绍与实例">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

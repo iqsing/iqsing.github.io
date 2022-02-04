@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>docker容器技术基础之linux cgroup、namespace | qsing`s blog</title>
+  <meta name="description" content="一、开头接触过docker的同学多多少少听过这样一句话“docker容器通过linux namespace、cgroup特性实现资源的隔离与限制”。今天我们来尝试学习一下这两个东西。 二、关于namesapce命名空间将全局系统资源包装在一个抽象中,使命名空间内的进程看起来它们拥有自己独立的全局资源实例。命名空间内对全局资源的改变对其他进程可见，命名空间的成员对其他进程不可见。 目前linux 内">
+<meta property="og:type" content="article">
+<meta property="og:title" content="docker容器技术基础之linux cgroup、namespace">
+<meta property="og:url" content="https://iqsing.github.io/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="一、开头接触过docker的同学多多少少听过这样一句话“docker容器通过linux namespace、cgroup特性实现资源的隔离与限制”。今天我们来尝试学习一下这两个东西。 二、关于namesapce命名空间将全局系统资源包装在一个抽象中,使命名空间内的进程看起来它们拥有自己独立的全局资源实例。命名空间内对全局资源的改变对其他进程可见，命名空间的成员对其他进程不可见。 目前linux 内">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2021-07-19T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.785Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="Cgroup">
+<meta property="article:tag" content="Namespace">
+<meta name="twitter:card" content="summary">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-docker容器技术基础之linux cgroup、namespace" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      docker容器技术基础之linux cgroup、namespace
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/" class="article-date">
+	  <time datetime="2021-07-19T16:47:21.000Z" itemprop="datePublished">2021-07-20</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/docker/">docker</a>►<a class="article-category-link" href="/categories/docker/linux/">linux</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/Cgroup/" rel="tag">Cgroup</a>, <a class="article-tag-link-link" href="/tags/Namespace/" rel="tag">Namespace</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 3.3k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 16(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <h4 id="一、开头"><a href="#一、开头" class="headerlink" title="一、开头"></a>一、开头</h4><p>接触过docker的同学多多少少听过这样一句话“docker容器通过linux namespace、cgroup特性实现资源的隔离与限制”。今天我们来尝试学习一下这两个东西。</p>
+<h4 id="二、关于namesapce"><a href="#二、关于namesapce" class="headerlink" title="二、关于namesapce"></a>二、关于namesapce</h4><p>命名空间将全局系统资源包装在一个抽象中,使命名空间内的进程看起来它们拥有自己独立的全局资源实例。命名空间内对全局资源的改变对其他进程可见，命名空间的成员对其他进程不可见。</p>
+<h5 id="目前linux-内核已实现的7种命名空间如下："><a href="#目前linux-内核已实现的7种命名空间如下：" class="headerlink" title="目前linux 内核已实现的7种命名空间如下："></a>目前linux 内核已实现的7种命名空间如下：</h5><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">Namespace   Flag（API操作类型别名）    Isolates（隔离内容）</span><br><span class="line"></span><br><span class="line">Cgroup      CLONE_NEWCGROUP   Cgroup root directory (since Linux 4.6)</span><br><span class="line">IPC         CLONE_NEWIPC      System V IPC, POSIX message queues (since Linux 2.6.19)</span><br><span class="line">Network     CLONE_NEWNET      Network devices, stacks, ports, etc. (since Linux 2.6.24)</span><br><span class="line">Mount       CLONE_NEWNS       Mount points (since Linux 2.4.19)</span><br><span class="line">PID         CLONE_NEWPID      Process IDs (since Linux 2.6.24)</span><br><span class="line">User        CLONE_NEWUSER     User and group IDs (started in Linux 2.6.23 and completed in Linux 3.8)</span><br><span class="line">UTS         CLONE_NEWUTS      Hostname and NIS domain name (since Linux 2.6.19)</span><br></pre></td></tr></table></figure>
+
+<h5 id="查看进程的namespace"><a href="#查看进程的namespace" class="headerlink" title="查看进程的namespace"></a>查看进程的namespace</h5><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# pidof bash</span><br><span class="line">14208 11123 2053</span><br><span class="line"></span><br><span class="line">[root@i-k9pwet2d ~]# ls -l  /proc/14208/ns</span><br><span class="line">total 0</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 ipc -&gt; ipc:[4026531839]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 mnt -&gt; mnt:[4026531840]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 net -&gt; net:[4026531956]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 pid -&gt; pid:[4026531836]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 user -&gt; user:[4026531837]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 09:36 uts -&gt; uts:[4026531838]</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>每一个进程在<code>/proc/[pid]/ns </code>都可以看到其所属的namespace信息，这些链接文件指向所属的namespace及inode ID,我们可以通过readlink 来查看两个进程的是否属于同一个命名空间，inode相同则他们所属相同命名空间</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# readlink /proc/11123/ns/uts</span><br><span class="line">uts:[4026531838]</span><br><span class="line">[root@i-k9pwet2d ~]# readlink /proc/14208/ns/uts</span><br><span class="line">uts:[4026531838]</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h5 id="如何将你的进程注册到命名空间（API操作）？"><a href="#如何将你的进程注册到命名空间（API操作）？" class="headerlink" title="如何将你的进程注册到命名空间（API操作）？"></a>如何将你的进程注册到命名空间（API操作）？</h5><p>**clone()*<em>：创建一个新的命名空间，子进程同属新的命名空间,flags即我们创建的namespace类型，形如CLONE_NEW</em></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">int clone(int (*fn)(void *), void *stack, int flags, void *arg, ...</span><br><span class="line">                 /* pid_t *parent_tid, void *tls, pid_t *child_tid */ );</span><br></pre></td></tr></table></figure>
+
+<p><strong>setns()</strong>: 加入一个命名空间，fd为<code>/proc/[pid]/ns </code>下的链接文件，nstype即我们的Flag</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">int setns(int fd, int nstype);</span><br></pre></td></tr></table></figure>
+
+<p><strong>unshare()</strong> ：退出某个namespace并加入创建的新空间。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">int unshare(int flags);</span><br></pre></td></tr></table></figure>
+
+<p><strong>ioctl()</strong> : ioctl系统调用可用于查询命名空间的信息</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">int ioctl(int fd , unsigned long request , ...);</span><br></pre></td></tr></table></figure>
+
+<hr>
+<p><strong>下面我们通过shell 命令 unshare 来看看命名空间7大隔离实现</strong></p>
+<p><strong>1.PID Namespace</strong></p>
+<p>PID Namespace 的作用是用来隔离进程，利用 PID Namespace 可以实现每个容器的主进程为 1 号进程，而容器内的进程在主机上却拥有不同的PID。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# unshare --fork --pid --mount-proc /bin/bash</span><br><span class="line">[root@i-k9pwet2d ~]# ps -aux</span><br><span class="line">USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND</span><br><span class="line">root         1  0.0  0.1 115680  2036 pts/0    S    10:46   0:00 /bin/bash</span><br><span class="line">root        12  0.0  0.1 115684  2048 pts/0    S    10:47   0:00 -bash</span><br><span class="line">root        30  0.0  0.0 155468  1804 pts/0    R+   10:57   0:00 ps -aux</span><br><span class="line"></span><br><span class="line">ls -l /proc/1/ns</span><br><span class="line">total 0</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 ipc -&gt; ipc:[4026531839]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 mnt -&gt; mnt:[4026532545]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 net -&gt; net:[4026531956]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 pid -&gt; pid:[4026532546]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 user -&gt; user:[4026531837]</span><br><span class="line">lrwxrwxrwx 1 root root 0 Jul 20 11:05 uts -&gt; uts:[4026531838]</span><br></pre></td></tr></table></figure>
+
+<p>在新的PID Namespace中我们只能看到自身命名空间的进程。并且当前的bash处于起来的mnt、pid命名空间。</p>
+<p><strong>2.Mount Namespace</strong></p>
+<p>它可以用来隔离不同的进程或进程组看到的挂载点。在容器内的挂载操作不会影响主机的挂载目录。</p>
+<p>我们创建一个命名空间</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">unshare --mount --fork /bin/bash</span><br></pre></td></tr></table></figure>
+
+<p>挂载一个目录</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# mkdir /tmp/mnt</span><br><span class="line">[root@i-k9pwet2d ~]# mount -t tmpfs -o size=1m tmpfs /tmp/mnt</span><br><span class="line"></span><br><span class="line">[root@i-k9pwet2d ~]# df -h |grep mnt</span><br><span class="line">tmpfs            1M     0   1M   0% /tmp/mnt</span><br></pre></td></tr></table></figure>
+
+<p>在命名空间内的挂载并不影响我们的主机目录，我们在主机上查看不到挂载信息</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">df -h |grep mnt </span><br></pre></td></tr></table></figure>
+
+<p><strong>3.User Namespace</strong></p>
+<p>User Namespace用来隔离用户和用户组。我们来创建一个用户命名空间并修改提示符</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# PS1=&#x27;\u@container#&#x27; unshare --user -r /bin/bash</span><br><span class="line"></span><br><span class="line">root@container#</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>再查看ns，用户链接是不同的，已处于不同空间。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# readlink /proc/1835/ns/user</span><br><span class="line">user:[4026532192]</span><br><span class="line">[root@i-k9pwet2d ~]# readlink /proc/$$/ns/user</span><br><span class="line">user:[4026531837]</span><br></pre></td></tr></table></figure>
+
+<p>用户命名空间的最大优势是无需 root 权限即可运行容器，避免应用使用root对主机的影响。</p>
+<p><strong>4.UTS Namespace</strong></p>
+<p>UTS Namespace 用于隔离主机名的，它允许每个 UTS Namespace 拥有一个独立的主机名。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# unshare --fork --uts /bin/bash</span><br></pre></td></tr></table></figure>
+
+<p>在命名空间中修改主机名,在主机中不受影响</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# hostname -b container</span><br><span class="line">[root@i-k9pwet2d ~]# hostname</span><br><span class="line">container</span><br></pre></td></tr></table></figure>
+
+<p>主机中</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# hostname</span><br><span class="line">i-k9pwet2d</span><br></pre></td></tr></table></figure>
+
+<p><strong>5.IPC Namespace</strong></p>
+<p>IPC 命名空间隔离某些 IPC 资源，即 System V IPC 对象（参见sysvipc(7)）和（自 Linux 2.6.30 起）POSIX 消息队列（请参阅mq_overview(7)）。容器通过IPC Namespace、PID Namespace实现同一 IPC Namespace 内的进程彼此可以通信，不同 IPC Namespace 的进程却不能通信。</p>
+<p>我们使用linux中ipc相关命令来测试</p>
+<p>ipcs -q 命令：用来查看系统间通信队列列表。</p>
+<p>ipcmk -Q 命令：用来创建系统间通信队列。</p>
+<p>我们先创建一个IPC Namespace</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# unshare --fork --ipc /bin/bash</span><br></pre></td></tr></table></figure>
+
+<p>创建一个通信队列后查询一下</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# ipcmk -Q</span><br><span class="line">Message queue id: 0</span><br><span class="line"></span><br><span class="line">[root@i-k9pwet2d ~]# ipcs -q</span><br><span class="line">------ Message Queues --------</span><br><span class="line">key        msqid      owner      perms      used-bytes   messages    </span><br><span class="line">0x1de4aef6 0          root       644        0            0 </span><br></pre></td></tr></table></figure>
+
+<p>在主机上查询，可以看到通信已经被隔离了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# ipcs -q</span><br><span class="line"></span><br><span class="line">------ Message Queues --------</span><br><span class="line">key        msqid      owner      perms      used-bytes   messages</span><br></pre></td></tr></table></figure>
+
+<p><strong>6.Net Namespace</strong></p>
+<p>Net Namespace 可用于隔离网络设备、IP 地址和端口等信息。Net Namespace 可以让每个进程拥有自己独立的 IP 地址，端口和网卡信息。</p>
+<p>我们继续创建一个Net Namespace</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# unshare --net --fork /bin/bash</span><br></pre></td></tr></table></figure>
+
+<p>查看网络和端口信息</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# ip addr</span><br><span class="line">1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN group default qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    </span><br><span class="line">[root@i-k9pwet2d ~]# netstat -ntlp</span><br><span class="line">Active Internet connections (only servers)</span><br><span class="line">Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name     </span><br></pre></td></tr></table></figure>
+
+<p>上面看到了一个回环接口lo，状态处于DOWN，我们将它启动，这样我们的Namespace有了自己的网络地址。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">    inet6 ::1/128 scope host </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br></pre></td></tr></table></figure>
+
+<p>主机中</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# ip addr</span><br><span class="line">1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000</span><br><span class="line">    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00</span><br><span class="line">    inet 127.0.0.1/8 scope host lo</span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">    inet6 ::1/128 scope host </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP group default qlen 1000</span><br><span class="line">    link/ether 52:54:96:e1:36:04 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">    inet 10.150.25.9/24 brd 10.150.25.255 scope global noprefixroute dynamic eth0</span><br><span class="line">       valid_lft 80720sec preferred_lft 80720sec</span><br><span class="line">    inet6 fe80::5054:96ff:fee1:3604/64 scope link </span><br><span class="line">       valid_lft forever preferred_lft forever</span><br><span class="line">       </span><br><span class="line">[root@i-k9pwet2d ~]# netstat -ntlp</span><br><span class="line">Active Internet connections (only servers)</span><br><span class="line">Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    </span><br><span class="line">tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      757/sshd            </span><br><span class="line">tcp        0      0 127.0.0.1:25            0.0.0.0:*               LISTEN      1112/master </span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p><strong>7.Cgroup Namespace</strong></p>
+<p>Cgroup是对进程的cgroup视图虚拟化。 每个 cgroup 命名空间都有自己的一组 cgroup 根目录。Linux 4.6开始支持。</p>
+<p>cgroup 命名空间提供的虚拟化有多种用途：</p>
+<ul>
+<li>防止信息泄漏。否则容器外的cgroup 目录路径对容器中的进程可见。</li>
+<li>简化了容器迁移等任务。</li>
+<li>允许更好地限制容器化进程。可以挂载容器的 cgroup 文件系统，这样容器无需访问主机 cgroup 目录。</li>
+</ul>
+<p><em><strong>8.Time Namespace</strong></em></p>
+<p>虚拟化两个系统时钟，用于隔离时间。 linux 5.7内核开始支持 参考地址：<a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/time_namespaces.7.html">TIME_NAMESPACES(7)</a></p>
+<hr>
+<h4 id="三、关于Cgroup"><a href="#三、关于Cgroup" class="headerlink" title="三、关于Cgroup"></a>三、关于Cgroup</h4><p>从上面我们了解到当我们要运行一个容器时，docker等应用会为该容器创建一组 namespace，对操作系统而言可以理解为一组进程。这下我们完成了“权利”的集中，但是“权利越大，责任也大”，我们不能放任这组“大权“不管，所以又有了<strong>Cgroup</strong>（<strong>Linux Control Group</strong>）这个东西。</p>
+<p><strong>Cgroup最主要的作用，就是限制一个进程组能够使用的资源上限，包括 CPU、内存、磁盘、网络带宽等等。</strong></p>
+<p><strong>cgroups 框架提供了以下内容</strong>：</p>
+<ul>
+<li><strong>资源限制：</strong> 可以为我们的进程组配置内存限制或cpu个数限制又或者仅限于某个特定外围设备。</li>
+<li><strong>优先级：</strong> 一个或多个组可以配置为优先占用 CPU 或磁盘 I/O 吞吐量。</li>
+<li><strong>资源记录：</strong> 监视和测量组的资源使用情况。</li>
+<li><strong>控制：</strong> 可以冻结或停止和重新启动进程组。</li>
+</ul>
+<p>一个 cgroup 可以由一个或多个进程组成，这些进程都绑定到同一组限制。这些组也可以是分层的，即子组可以继承父组管理的限制。</p>
+<p>Linux 内核为 cgroup 技术提供了对一系列控制器或子系统的访问。控制器负责将特定类型的系统资源分配给一组一个或多个进程。例如，<code>memory</code>控制器限制内存使用，而<code>cpuacct</code>控制器监控 CPU 使用。</p>
+<p>我们通过Mount查看系统中cgroup的子系统</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# mount -t cgroup </span><br><span class="line">cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,release_agent=/usr/lib/systemd/systemd-cgroups-agent,name=systemd)</span><br><span class="line">cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpuacct,cpu)</span><br><span class="line">cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_prio,net_cls)</span><br><span class="line">cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)</span><br><span class="line">cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)</span><br><span class="line">cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)</span><br><span class="line">cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)</span><br><span class="line">cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)</span><br><span class="line">cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)</span><br><span class="line">cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)</span><br><span class="line">cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)</span><br></pre></td></tr></table></figure>
+
+<p>可以看到cgroup已通过文件系统方式挂载到/sys/fs/cgroup/</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# ls -l /sys/fs/cgroup/</span><br><span class="line">total 0</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 blkio</span><br><span class="line">lrwxrwxrwx 1 root root 11 Jul 20 12:23 cpu -&gt; cpu,cpuacct</span><br><span class="line">lrwxrwxrwx 1 root root 11 Jul 20 12:23 cpuacct -&gt; cpu,cpuacct</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 cpu,cpuacct</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 cpuset</span><br><span class="line">drwxr-xr-x 4 root root  0 Jul 20 12:23 devices</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 freezer</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 hugetlb</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 memory</span><br><span class="line">lrwxrwxrwx 1 root root 16 Jul 20 12:23 net_cls -&gt; net_cls,net_prio</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 net_cls,net_prio</span><br><span class="line">lrwxrwxrwx 1 root root 16 Jul 20 12:23 net_prio -&gt; net_cls,net_prio</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 perf_event</span><br><span class="line">drwxr-xr-x 2 root root  0 Jul 20 12:23 pids</span><br><span class="line">drwxr-xr-x 4 root root  0 Jul 20 12:23 systemd</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h5 id="接下来我们通过一个实例看看cgroup是如何限制CPU使用的"><a href="#接下来我们通过一个实例看看cgroup是如何限制CPU使用的" class="headerlink" title="接下来我们通过一个实例看看cgroup是如何限制CPU使用的"></a>接下来我们通过一个实例看看cgroup是如何限制CPU使用的</h5><p>我们启动一个循环脚本，这个循环脚本将占用近100%的CPU，我们通过cgroup限制到50%</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">$</span><span class="bash"> cat loop.sh</span></span><br><span class="line"><span class="meta">#</span><span class="bash">!/bash/sh</span></span><br><span class="line"></span><br><span class="line">while [ 1 ]; do</span><br><span class="line">:</span><br><span class="line">done</span><br></pre></td></tr></table></figure>
+
+<p>将我们的脚本放到后台，获取它的PID为21497</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nohup bash loop.sh &amp;   </span><br></pre></td></tr></table></figure>
+
+<p>我们需要创建一个cgroup控制组loop</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# mkdir /sys/fs/cgroup/cpu/loop</span><br></pre></td></tr></table></figure>
+
+<p>loop组是CPU的子组，上面提到子组可以继承父组管理的限制所以loop将继承对系统整个cpu的访问权限</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d shell]# ls -l /sys/fs/cgroup/cpu/loop</span><br><span class="line">total 0</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cgroup.clone_children</span><br><span class="line">--w--w--w- 1 root root 0 Jul 20 17:15 cgroup.event_control</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cgroup.procs</span><br><span class="line">-r--r--r-- 1 root root 0 Jul 20 17:15 cpuacct.stat</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpuacct.usage</span><br><span class="line">-r--r--r-- 1 root root 0 Jul 20 17:15 cpuacct.usage_percpu</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpu.cfs_period_us</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpu.cfs_quota_us</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpu.rt_period_us</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpu.rt_runtime_us</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 cpu.shares</span><br><span class="line">-r--r--r-- 1 root root 0 Jul 20 17:15 cpu.stat</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 notify_on_release</span><br><span class="line">-rw-r--r-- 1 root root 0 Jul 20 17:15 tasks</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>查看继承后的loop组cpu限制，计算周期为100000us，采样时间无限制（-1）</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d shell]# cat /sys/fs/cgroup/cpu/loop/cpu.cfs_period_us</span><br><span class="line">100000</span><br><span class="line">[root@i-k9pwet2d shell]# cat /sys/fs/cgroup/cpu/loop/cpu.cfs_quota_us</span><br><span class="line">-1</span><br></pre></td></tr></table></figure>
+
+<p>为了限制进程的的cpu使用率为50%，我们需要更新<code>cpu.cfs_quota_us</code>的值为50000</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">echo 50000 &gt;/sys/fs/cgroup/cpu/loop/cpu.cfs_quota_us</span><br></pre></td></tr></table></figure>
+
+<p>将脚本PID更新到loop控制组下的<code>tasks</code></p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d shell]# echo 21497 &gt;/sys/fs/cgroup/cpu/loop/tasks</span><br></pre></td></tr></table></figure>
+
+<p>此时我们的脚本CPU使用率已被限制到50%</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S %CPU %MEM     TIME+ COMMAND                                        </span><br><span class="line">21497 root      20   0  113284   1176    996 R 50.0  0.1  12:17.48 bash  </span><br></pre></td></tr></table></figure>
+
+<p>在docker启动容器时做的cpu限制参数<code>--cpu-period</code>、<code>--cpu-quota</code>实际上就是调整对应容器控制组的cpu配额。</p>
+<hr>
+<p><strong>参考：</strong></p>
+<ul>
+<li><p><a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100015201">《深入剖析Kubernetes》张磊</a></p>
+</li>
+<li><p><a target="_blank" rel="noopener" href="https://www.linuxjournal.com/content/everything-you-need-know-about-linux-containers-part-i-linux-control-groups-and-process">Everything You Need to Know about Linux Containers, Part I: Linux Control Groups and Process Isolation</a></p>
+</li>
+<li><p><a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/namespaces.7.html">namespaces(7) — Linux manual page</a></p>
+</li>
+</ul>
+<hr>
+<p>小作文有不足的地方欢迎指出。</p>
+<p>欢迎收藏、点赞、提问。关注顶级饮水机管理员，除了管烧热水，有时还做点别的。</p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/" title="docker容器技术基础之linux cgroup、namespace" target="_blank" rel="external">https://iqsing.github.io/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/" title="docker容器技术基础之联合文件系统OverlayFS"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/07/19/Github%20Copilot%20%E7%BB%93%E5%90%88python%E7%9A%84%E4%BD%BF%E7%94%A8/" title="Github Copilot 结合python的使用">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

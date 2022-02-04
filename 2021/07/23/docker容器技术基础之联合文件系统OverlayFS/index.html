@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>docker容器技术基础之联合文件系统OverlayFS | qsing`s blog</title>
+  <meta name="description" content="我们在上篇介绍了容器技术中资源隔离与限制docker容器技术基础之linux cgroup、namespace 这篇小作文我们要尝试学习容器的另外一个重要技术之联合文件系统之OverlayFS，在介绍OverlayFS之前我们会学习一下镜像、容器、层的相关知识，然后是OverlayFS及相关实例，最后介绍docker中overlay2驱动即overlayfs在容器中的实现。  一、镜像、容器和层d">
+<meta property="og:type" content="article">
+<meta property="og:title" content="docker容器技术基础之联合文件系统OverlayFS">
+<meta property="og:url" content="https://iqsing.github.io/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="我们在上篇介绍了容器技术中资源隔离与限制docker容器技术基础之linux cgroup、namespace 这篇小作文我们要尝试学习容器的另外一个重要技术之联合文件系统之OverlayFS，在介绍OverlayFS之前我们会学习一下镜像、容器、层的相关知识，然后是OverlayFS及相关实例，最后介绍docker中overlay2驱动即overlayfs在容器中的实现。  一、镜像、容器和层d">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/container-layers.jpg">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/sharing-layers.jpg">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210723103255000.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/upper-lower.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/overlay_constructs.jpg">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/docker2.png">
+<meta property="article:published_time" content="2021-07-22T16:47:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.797Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="OverlayFS">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/container-layers.jpg">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-docker容器技术基础之联合文件系统OverlayFS" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      docker容器技术基础之联合文件系统OverlayFS
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/" class="article-date">
+	  <time datetime="2021-07-22T16:47:21.000Z" itemprop="datePublished">2021-07-23</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/docker/">docker</a>►<a class="article-category-link" href="/categories/docker/linux/">linux</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 1.8k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 7(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>我们在上篇介绍了容器技术中资源隔离与限制<a target="_blank" rel="noopener" href="https://juejin.cn/post/6987210452853850120">docker容器技术基础之linux cgroup、namespace</a></p>
+<p>这篇小作文我们要尝试学习容器的另外一个重要技术之联合文件系统之OverlayFS，在介绍OverlayFS之前我们会学习一下镜像、容器、层的相关知识，然后是OverlayFS及相关实例，最后介绍docker中overlay2驱动即overlayfs在容器中的实现。</p>
+<hr>
+<h4 id="一、镜像、容器和层"><a href="#一、镜像、容器和层" class="headerlink" title="一、镜像、容器和层"></a>一、镜像、容器和层</h4><p>docker中镜像是层级结构的，即图中的<code>image layers</code>，每一层只是与它之前的层的一组差异。这些层堆叠在彼此的顶部。当我们创建一个新容器时，会在镜像层加一个新的可写层。这一层通常被称为“容器层”。对正在运行的容器所做的所有更改，例如写入新文件、修改现有文件和删除文件，都将写入这个薄的可写容器层。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/container-layers.jpg" alt="container-layers"></p>
+<p>那么<strong>一个镜像创建多个容器时是怎样的景象呢？</strong>如下图所示，添加新数据或修改现有数据的所有写入容器都存储在此可写层中。当容器被删除时，可写层也被删除。底层镜像保持不变。因为每个容器都有自己的可写容器层，所有的变化都存储在这个容器层中，所以多个容器可以共享对同一个底层镜像的访问，同时又拥有自己的数据状态。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/sharing-layers.jpg" alt="sharing-layers"></p>
+<p>到这里你可能要问了：<strong>镜像为什么要分层啊？</strong>乱七八糟的！</p>
+<p>其实不然，通过镜像的层级结构主要的一个优点是你可以把你的基础镜像进行共享，什么意思呢？比如你现在需要一个Nginx镜像、一个Tomcat镜像它们都可以通过一个base镜像如centos或者ubuntu制作而成，它看起来是这样的</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20210723103255000.png" alt="image-20210723103255000"></p>
+<p>如此一来通过镜像分层可以大大减少磁盘空间占用，同时降低镜像复构建杂度，何乐而不为。</p>
+<hr>
+<h4 id="二、联合文件系统OverlayFS"><a href="#二、联合文件系统OverlayFS" class="headerlink" title="二、联合文件系统OverlayFS"></a>二、联合文件系统OverlayFS</h4><p>通过上面我们大概了解了镜像、容器和层的关系，那么又有一个问题了：<strong>镜像层和可写容器层的文件或者内容是如何来管理的？明明是分层的又是怎么合并的？</strong></p>
+<p>接下来我们将介绍UnionFS（联合文件系统），它的厉害之处在于可以将多个目录挂载到一个根目录。OverlayFS 是linux现代联合文件系统的一个代表，合并于Linux内核的3.18版本。从 docker 18.06后docker为OverlayFS提供了两个存储驱动，原始的overlay及overlay2（改善 inode 利用率），overlay2是目前docker推荐和首选存储驱动，通过它来管理镜像层和可写容器层内容。</p>
+<p>我们可以在docker info中查看docker存储驱动版本</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# docker info</span><br><span class="line">...</span><br><span class="line"> Server Version: 20.10.6</span><br><span class="line"> Storage Driver: overlay2</span><br><span class="line"> Backing Filesystem: extfs</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>OverlayFS这种堆叠的文件系统，依赖于其他文件系统之上，比如我们在info 中看到的<code>extfs</code>或者<code>xfs</code>等，它的结构如下图：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/upper-lower.png" alt="upper-lower"></p>
+<p>我们的基础层称为“lowerdir”即原始文件所在的位置。</p>
+<p>客户端所做的任何修改都将反映在“upperdir”层上：</p>
+<ul>
+<li>如果更改文件，新版本将写入其中（file1）。</li>
+<li>如果删除文件，将在该层上创建一个删除标记（file2）。</li>
+<li>创建一个新文件（file4）。</li>
+</ul>
+<p>最后，“merged”是所有层合并后的最终视图。</p>
+<p>假如你有一些数据，需要多个进程来访问和修改它。每个进程都要创建一个独立的数据视图，你要存储多份原始数据，数据量大的话显然这会非常低效的。使用OverlayFS将会是very good！</p>
+<p><strong>接下来我们来我们搞个实验看看</strong></p>
+<p>我建立如下目录结构,<code>workdir</code>在OverlayFS中需要为空，用作内部临时存储。<code>lowerdir</code>包含3个文件file1、file2、file3</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d overlayfs_test]# tree .</span><br><span class="line">.</span><br><span class="line">├── client_1</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   └── workdir</span><br><span class="line">├── client_2</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   └── workdir</span><br><span class="line">├── lowerdir</span><br><span class="line">│   ├── file1.txt</span><br><span class="line">│   └── file2.txt</span><br><span class="line">│	└── file3.txt</span><br><span class="line">└── merged</span><br><span class="line">    ├── client_1</span><br><span class="line">    └── client_2</span><br><span class="line"></span><br><span class="line">10 directories, 3 files</span><br></pre></td></tr></table></figure>
+
+<p>挂载overlay</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">mount -t overlay overlay \</span><br><span class="line">-o lowerdir=/overlaytest/lowerdir \</span><br><span class="line">-o upperdir=/overlaytest/client_1/upperdir \</span><br><span class="line">-o workdir=/overlaytest/client_1/workdir \</span><br><span class="line">/overlaytest/merged/client_1</span><br><span class="line"></span><br><span class="line">mount -t overlay overlay \</span><br><span class="line">-o lowerdir=/overlaytest/lowerdir \</span><br><span class="line">-o upperdir=/overlaytest/client_2/upperdir \</span><br><span class="line">-o workdir=/overlaytest/client_2/workdir \</span><br><span class="line">/overlaytest/merged/client_2</span><br></pre></td></tr></table></figure>
+
+<p>挂载后查看我们的视图，可以看到三个文件已经被合并到<code>merged</code>区了</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d overlaytest]# tree .</span><br><span class="line">.</span><br><span class="line">├── client_1</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   └── workdir</span><br><span class="line">│       └── work</span><br><span class="line">├── client_2</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   └── workdir</span><br><span class="line">│       └── work</span><br><span class="line">├── lowerdir</span><br><span class="line">│   ├── file1.txt</span><br><span class="line">│   ├── file2.txt</span><br><span class="line">│   └── file3.txt</span><br><span class="line">└── merged</span><br><span class="line">    ├── client_1</span><br><span class="line">    │   ├── file1.txt</span><br><span class="line">    │   ├── file2.txt</span><br><span class="line">    │   └── file3.txt</span><br><span class="line">    └── client_2</span><br><span class="line">        ├── file1.txt</span><br><span class="line">        ├── file2.txt</span><br><span class="line">        └── file3.txt</span><br></pre></td></tr></table></figure>
+
+<p>下一步我们修改<code>merged/client_1</code>下修改我们的都数据</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d client_1]# echo &quot;data no.1&quot;&gt;&gt;file1.txt </span><br><span class="line">[root@i-k9pwet2d client_1]# rm file2.txt </span><br><span class="line">[root@i-k9pwet2d client_1]# echo &quot;data4&quot; &gt; file4.txt</span><br><span class="line">[root@i-k9pwet2d client_1]# ls</span><br><span class="line">file1.txt  file3.txt  file4.txt</span><br></pre></td></tr></table></figure>
+
+<p>再看我们的视图，可以看到修改只作用于<code>client_1/upperdir</code>，对我们<code>lowerdir</code>下原始数据以及<code>client_2</code>数据并不影响。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d overlaytest]# tree .</span><br><span class="line">.</span><br><span class="line">├── client_1</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   │   ├── file1.txt</span><br><span class="line">│   │   ├── file2.txt</span><br><span class="line">│   │   └── file4.txt</span><br><span class="line">│   └── workdir</span><br><span class="line">│       └── work</span><br><span class="line">├── client_2</span><br><span class="line">│   ├── upperdir</span><br><span class="line">│   └── workdir</span><br><span class="line">│       └── work</span><br><span class="line">├── lowerdir</span><br><span class="line">│   ├── file1.txt</span><br><span class="line">│   ├── file2.txt</span><br><span class="line">│   └── file3.txt</span><br><span class="line">└── merged</span><br><span class="line">    ├── client_1</span><br><span class="line">    │   ├── file1.txt</span><br><span class="line">    │   ├── file3.txt</span><br><span class="line">    │   └── file4.txt</span><br><span class="line">    └── client_2</span><br><span class="line">        ├── file1.txt</span><br><span class="line">        ├── file2.txt</span><br><span class="line">        └── file3.txt</span><br><span class="line"></span><br><span class="line">12 directories, 12 files</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h4 id="OverlayFS在容器中的实现"><a href="#OverlayFS在容器中的实现" class="headerlink" title="OverlayFS在容器中的实现"></a>OverlayFS在容器中的实现</h4><p>下图显示了 在Docker 中镜像和 容器是如何通过OverlayFS分层与互相构造的映射。图像层是<code>lowerdir</code>，容器层是<code>upperdir</code>。统一视图合并到<code>merged</code>目录，该目录实际上是容器安装点。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/overlay_constructs.jpg" alt="overlay_constructs"></p>
+<p>我们查看一个真正运行容器centos的inspect</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker inspect ca9a9e0a35c7</span><br></pre></td></tr></table></figure>
+
+<p>可以看到OverlayFS对应的目录地址，<code>lowerDir</code>即我们的原始数据包含image的rootfs（根文件）以及init相关文件，关于docker init层可以自行检索一下哈，这里不做介绍了。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">&quot;GraphDriver&quot;: &#123;</span><br><span class="line">            &quot;Data&quot;: &#123;</span><br><span class="line">                &quot;LowerDir&quot;: &quot;/var/lib/docker/overlay2/444808f5d6566eebf4ea73ea593b2c2076d4347ff57bd98cbc179dbac9265968-init/diff:/var/lib/docker/overlay2/0d6b94986ba1af1cc75e7c237f78d7e02d40f5ae5ec3f67ddb699ae6d07a2ca8/diff&quot;,</span><br><span class="line">                &quot;MergedDir&quot;: &quot;/var/lib/docker/overlay2/444808f5d6566eebf4ea73ea593b2c2076d4347ff57bd98cbc179dbac9265968/merged&quot;,</span><br><span class="line">                &quot;UpperDir&quot;: &quot;/var/lib/docker/overlay2/444808f5d6566eebf4ea73ea593b2c2076d4347ff57bd98cbc179dbac9265968/diff&quot;,</span><br><span class="line">                &quot;WorkDir&quot;: &quot;/var/lib/docker/overlay2/444808f5d6566eebf4ea73ea593b2c2076d4347ff57bd98cbc179dbac9265968/work&quot;</span><br><span class="line">            &#125;,</span><br><span class="line">            &quot;Name&quot;: &quot;overlay2&quot;</span><br><span class="line">        &#125;,</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>到<code>LowerDir</code>下查看原始rootfs</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d client_1]# ls /var/lib/docker/overlay2/0d6b94986ba1af1cc75e7c237f78d7e02d40f5ae5ec3f67ddb699ae6d07a2ca8/diff</span><br><span class="line">bin  dev  etc  home  lib  lib64  lost+found  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>我们进入容器添加和删除文件看看</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@i-k9pwet2d ~]# docker exec -it ca9a /bin/bash</span><br><span class="line"></span><br><span class="line">[root@ca9a9e0a35c7 /]# echo &quot;newfile&quot; &gt;file </span><br><span class="line"></span><br><span class="line">[root@ca9a9e0a35c7 /]# rm /tmp/ks-script-esd4my7v</span><br></pre></td></tr></table></figure>
+
+<p>显然到到<code>LowerDir</code>下查看原始rootfs并不受影响而是把变更写入到了<code>upperdir</code>即容器层</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">cd  /var/lib/docker/overlay2/444808f5d6566eebf4ea73ea593b2c2076d4347ff57bd98cbc179dbac9265968/diff</span><br><span class="line"></span><br><span class="line">[root@i-k9pwet2d diff]# tree .</span><br><span class="line">.</span><br><span class="line">├── file</span><br><span class="line">└── tmp</span><br><span class="line">    └── ks-script-esd4my7v</span><br><span class="line"></span><br><span class="line">1 directory, 2 files</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>以上的操作也就是docker中所谓的CoW（写时复制）策略。在docker中overlay2驱动对联合文件系统操作的更多场景可以参阅官方文档</p>
+<hr>
+<p>这样我们实现容器的三大基础技术Namespace、Cgroup、UnionFS联合文件系统已经介绍完啦，希望这三篇小作文对想了解容器实现原理的读者有些许帮助。</p>
+<hr>
+<p>参考：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://docs.docker.com/storage/storagedriver/overlayfs-driver/">Use the OverlayFS storage driver</a></li>
+<li><a target="_blank" rel="noopener" href="https://blogs.cisco.com/developer/373-containerimages-03">Understanding Container Images, Part 3: Working with Overlays</a></li>
+</ul>
+<hr>
+<p>小作文有不足的地方欢迎指出。</p>
+<p>感谢收藏、点赞。关注顶级饮水机管理员，除了烧热水，有时还做点别的。</p>
+<p>您的支持是我烧热水最大的动力…</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/docker2.png" alt="docker2"></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/" title="docker容器技术基础之联合文件系统OverlayFS" target="_blank" rel="external">https://iqsing.github.io/2021/07/23/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8B%E8%81%94%E5%90%88%E6%96%87%E4%BB%B6%E7%B3%BB%E7%BB%9FOverlayFS/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/08/10/docker%E5%AE%B9%E5%99%A8%E7%BD%91%E7%BB%9Cbridge/" title="docker容器网络bridge"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/07/20/docker%E5%AE%B9%E5%99%A8%E6%8A%80%E6%9C%AF%E5%9F%BA%E7%A1%80%E4%B9%8Blinux%20cgroup%E3%80%81namespace/" title="docker容器技术基础之linux cgroup、namespace">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>docker 容器如何精简镜像减小体积 | qsing`s blog</title>
+  <meta name="description" content="写在前面我们在上篇《Docker容器 关于镜像构建的安全问题》一起学习了如何构建一个基于安全的镜像，这篇小作文我们会学习镜像构建的另一个关键性问题，为何别人打造的镜像只有10MB而我的有几百MB？如何精简镜像减小镜像体积？  精简镜像我们可以从两个方面切入：  减少镜像层数 缩减容量   一、减少镜像层数1.指令合并Dockerfile 中的每条指令都将创建一个层，不过查看官方文档中最佳实践有这样">
+<meta property="og:type" content="article">
+<meta property="og:title" content="docker 容器如何精简镜像减小体积">
+<meta property="og:url" content="https://iqsing.github.io/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="写在前面我们在上篇《Docker容器 关于镜像构建的安全问题》一起学习了如何构建一个基于安全的镜像，这篇小作文我们会学习镜像构建的另一个关键性问题，为何别人打造的镜像只有10MB而我的有几百MB？如何精简镜像减小镜像体积？  精简镜像我们可以从两个方面切入：  减少镜像层数 缩减容量   一、减少镜像层数1.指令合并Dockerfile 中的每条指令都将创建一个层，不过查看官方文档中最佳实践有这样">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2021-08-31T04:22:21.000Z">
+<meta property="article:modified_time" content="2022-02-04T05:16:11.752Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="dockerfile">
+<meta name="twitter:card" content="summary">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">12</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/25/k8s%20%E5%9F%BA%E4%BA%8ERBAC%E7%9A%84%E8%AE%A4%E8%AF%81%E3%80%81%E6%8E%88%E6%9D%83%E4%BB%8B%E7%BB%8D%E5%92%8C%E5%AE%9E%E8%B7%B5/" class="title">k8s 基于RBAC的认证、授权介绍和实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-24T16:47:21.000Z" itemprop="datePublished">2022-01-25</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/20/k8s%20loadbalancer%E4%B8%8Eingress%E5%AE%9E%E8%B7%B5/" class="title">k8s loadbalancer与ingress实践</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-19T16:47:21.000Z" itemprop="datePublished">2022-01-20</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/15/k8s%20%E7%90%86%E8%A7%A3Service%E5%B7%A5%E4%BD%9C%E5%8E%9F%E7%90%86/" class="title">k8s 理解Service工作原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-14T16:47:21.000Z" itemprop="datePublished">2022-01-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/01/10/k8s%20env%E3%80%81configmap%E3%80%81secret%E5%A4%96%E9%83%A8%E6%95%B0%E6%8D%AE%E5%8A%A0%E8%BD%BD%E9%85%8D%E7%BD%AE/" class="title">k8s env、configmap、secret外部数据加载配置</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-01-09T16:47:21.000Z" itemprop="datePublished">2022-01-10</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2021/11/16/k8s%E7%BD%91%E7%BB%9C%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%9B%86%E7%BE%A4%E9%80%9A%E4%BF%A1/" class="title">k8s网络模型与集群通信</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2021-11-16T04:47:21.000Z" itemprop="datePublished">2021-11-16</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-docker容器 如何精简镜像减小体积" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      docker 容器如何精简镜像减小体积
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/" class="article-date">
+	  <time datetime="2021-08-31T04:22:21.000Z" itemprop="datePublished">2021-08-31</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/docker/">docker</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/dockerfile/" rel="tag">dockerfile</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 1.6k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 7(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <h4 id="写在前面"><a href="#写在前面" class="headerlink" title="写在前面"></a>写在前面</h4><p>我们在上篇《Docker容器 关于镜像构建的安全问题》一起学习了如何构建一个基于安全的镜像，这篇小作文我们会学习镜像构建的另一个关键性问题，为何别人打造的镜像只有10MB而我的有几百MB？如何精简镜像减小镜像体积？</p>
+<hr>
+<p>精简镜像我们可以从两个方面切入：</p>
+<ul>
+<li><strong>减少镜像层数</strong></li>
+<li><strong>缩减容量</strong></li>
+</ul>
+<hr>
+<h5 id="一、减少镜像层数"><a href="#一、减少镜像层数" class="headerlink" title="一、减少镜像层数"></a>一、减少镜像层数</h5><h5 id="1-指令合并"><a href="#1-指令合并" class="headerlink" title="1.指令合并"></a>1.指令合并</h5><p>Dockerfile 中的每条指令都将创建一个层，不过查看官方文档中最佳实践有这样一句话：</p>
+<p>In older versions of Docker, it was important that you minimized the number of layers in your images to ensure they were performant. The following features were added to reduce this limitation:</p>
+<ul>
+<li><p><strong>Only the instructions <code>RUN</code>, <code>COPY</code>, <code>ADD</code> create layers. Other instructions create temporary intermediate images, and do not increase the size of the build.</strong></p>
+<p>…</p>
+</li>
+</ul>
+<p>参考地址：<a target="_blank" rel="noopener" href="https://docs.docker.com/develop/develop-images/dockerfile_best-practices/#minimize-the-number-of-layers">Minimize the number of layers</a></p>
+<p>意味着只有 <code>RUN</code>, <code>COPY</code>, <code>ADD</code> 三个指令会创建层，其他指令会创建一个中间镜像，并且不会影响镜像大小。这样我们说的指令合并也就是以这三个指令为主。</p>
+<p>我们以如下Dockerfile为例</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">FROM</span> debian:stable</span><br><span class="line"></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="bash"> /var/www</span></span><br><span class="line"><span class="keyword">LABEL</span><span class="bash"> version=“v1”</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get update</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get -y --no-install-recommends install curl</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get purge -y curl</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get autoremove -y</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get clean</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> rm -rf /var/lib/apt/lists/*</span></span><br></pre></td></tr></table></figure>
+
+<p>构建镜像</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker build -t curl:v1 .</span><br></pre></td></tr></table></figure>
+
+<p>通过history查看构建历史</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker history curl:v1</span></span><br><span class="line"></span><br><span class="line">IMAGE          CREATED          CREATED BY                                      SIZE      COMMENT</span><br><span class="line">29b721c09b67   18 seconds ago   /bin/sh -c rm -rf /var/lib/apt/lists/*          0B        </span><br><span class="line">aa28ae151e59   20 seconds ago   /bin/sh -c apt-get clean                        0B        </span><br><span class="line">4f733781f557   22 seconds ago   /bin/sh -c apt-get autoremove -y                989kB     </span><br><span class="line">f66887372121   29 seconds ago   /bin/sh -c apt-get purge -y curl                987kB     </span><br><span class="line">d458ee0de463   34 seconds ago   /bin/sh -c apt-get -y --no-install-recommend…   4.46MB    </span><br><span class="line">43fdcf68018c   44 seconds ago   /bin/sh -c apt-get update                       17.6MB    </span><br><span class="line">65631e8bb010   53 seconds ago   /bin/sh -c <span class="comment">#(nop)  LABEL version=“v1”           0B        </span></span><br><span class="line">7ef7c53b019c   53 seconds ago   /bin/sh -c <span class="comment">#(nop) WORKDIR /var/www              0B        </span></span><br><span class="line">8bfa93572e55   13 days ago      /bin/sh -c <span class="comment">#(nop)  CMD [&quot;bash&quot;]                 0B        </span></span><br><span class="line">&lt;missing&gt;      13 days ago      /bin/sh -c <span class="comment">#(nop) ADD file:d78d93eff67b18592…   124MB </span></span><br></pre></td></tr></table></figure>
+
+<p>镜像大小</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@localhost dockerfiles]<span class="comment"># docker images</span></span><br><span class="line">REPOSITORY            TAG       IMAGE ID       CREATED          SIZE</span><br><span class="line">curl                  v1        29b721c09b67   10 minutes ago   148MB</span><br></pre></td></tr></table></figure>
+
+<p>我们将<code>RUN</code>指令通过类shell操作<code>&amp;&amp;</code>合并后</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">RUN</span><span class="bash"> apt-get update &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apt-get -y --no-install-recommends install curl &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apt-get purge -y curl &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apt-get autoremove -y &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apt-get clean &amp;&amp; \</span></span><br><span class="line"><span class="bash">    rm -rf /var/lib/apt/lists/*</span></span><br></pre></td></tr></table></figure>
+
+<p>查看构建历史与镜像大小</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker history curl:v2</span></span><br><span class="line">IMAGE          CREATED              CREATED BY                                      SIZE      COMMENT</span><br><span class="line">928e12c2f57e   About a minute ago   /bin/sh -c apt-get update &amp;&amp;     apt-get -y …   989kB     </span><br><span class="line">5a32372025fb   About a minute ago   /bin/sh -c <span class="comment">#(nop)  LABEL version=“v2”           0B        </span></span><br><span class="line">7ef7c53b019c   30 minutes ago       /bin/sh -c <span class="comment">#(nop) WORKDIR /var/www              0B        </span></span><br><span class="line">8bfa93572e55   13 days ago          /bin/sh -c <span class="comment">#(nop)  CMD [&quot;bash&quot;]                 0B        </span></span><br><span class="line">&lt;missing&gt;      13 days ago          /bin/sh -c <span class="comment">#(nop) ADD file:d78d93eff67b18592…   124MB</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># docker images</span></span><br><span class="line">REPOSITORY            TAG       IMAGE ID       CREATED          SIZE</span><br><span class="line">curl                  v2        928e12c2f57e   3 minutes ago    125MB</span><br></pre></td></tr></table></figure>
+
+<p>可见只是一个简单的curl应用在通过指令合并的方式安装已经获得了约20MB的容量释放。同时使你的dockerfile文件更为易读和简约。</p>
+<h5 id="2-多阶段构建"><a href="#2-多阶段构建" class="headerlink" title="2.多阶段构建"></a>2.多阶段构建</h5><p>在Docker17.05 中引入了多阶段构建，通过多阶段构建可以大大降低构建复杂度，同时使缩小镜像尺寸更为简单。我们来看多阶段构建的Dockerfile</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#阶段1</span></span><br><span class="line"><span class="keyword">FROM</span> golang:<span class="number">1.16</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="bash"> /go/src</span></span><br><span class="line"><span class="keyword">COPY</span><span class="bash"> app.go ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> go build app.go -o myapp</span></span><br><span class="line"><span class="comment">#阶段2</span></span><br><span class="line"><span class="keyword">FROM</span> scratch</span><br><span class="line"><span class="keyword">WORKDIR</span><span class="bash"> /server</span></span><br><span class="line"><span class="keyword">COPY</span><span class="bash"> --from=0 /go/src/myapp ./</span></span><br><span class="line"><span class="keyword">CMD</span><span class="bash"> [<span class="string">&quot;./myapp&quot;</span>]</span></span><br></pre></td></tr></table></figure>
+
+<p>构建镜像</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker build --no-cache  -t server_app:v2 .</span></span><br></pre></td></tr></table></figure>
+
+<p>查看构建好的镜像</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker images</span></span><br><span class="line">REPOSITORY            TAG       IMAGE ID       CREATED              SIZE</span><br><span class="line">server_app            v2        20225cb1ea6b   12 seconds ago       1.94MB</span><br></pre></td></tr></table></figure>
+
+<p>以上用例来自上篇文章<a href="">《Dockerfile 多阶段构建实践》</a>关于镜像多阶段构建具体内容可以前往查看，这里不做过多赘述。</p>
+<h4 id="3-启用squash特性"><a href="#3-启用squash特性" class="headerlink" title="3.启用squash特性"></a>3.启用squash特性</h4><p>通过启用squash特性（实验性功能）<code>docker build --squash -t curl:v3 .</code> 可以构建的镜像压缩为一层。但是为了充分发挥容器镜像层共享的优越设计，这种方法不被推荐。</p>
+<hr>
+<h4 id="二、缩减容量"><a href="#二、缩减容量" class="headerlink" title="二、缩减容量"></a>二、缩减容量</h4><h5 id="1-选择小的基础镜像"><a href="#1-选择小的基础镜像" class="headerlink" title="1. 选择小的基础镜像"></a>1. 选择小的基础镜像</h5><p>每个linux发行版镜像大小相差很多，甚至相同发行版镜像也存在差异。我们以debian为例：</p>
+<p>稳定版和瘦身版相差约40MB</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker images </span></span><br><span class="line">debian                stable-slim   2aa48a485e3a   13 days ago         80.4MB</span><br><span class="line">debian                stable        8bfa93572e55   13 days ago         124MB</span><br></pre></td></tr></table></figure>
+
+<p>我们将Dockerfile中基础镜像改为瘦身版<code>debian:stable-slim</code></p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">FROM</span> debian:stable-slim</span><br></pre></td></tr></table></figure>
+
+<p>构建后的镜像尺寸更小</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker images </span></span><br><span class="line">REPOSITORY            TAG           IMAGE ID       CREATED             SIZE</span><br><span class="line">curl                  v4            1aab5c9bf8b3   17 seconds ago      81.4MB</span><br></pre></td></tr></table></figure>
+
+<p>当前映像基于 Debian，并包含许多二进制文件。Docker 容器应该包含一个进程，并包含运行它所需的最低限度。我们其实不需要整个操作系统。</p>
+<p>我们可以使用基于 Alpine 的镜像 替换Debian 基础镜像。</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">FROM</span> alpine</span><br><span class="line"></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="bash"> /var/www</span></span><br><span class="line"><span class="keyword">LABEL</span><span class="bash"> version=“v5”</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> <span class="built_in">echo</span> -e <span class="string">&#x27;https://mirrors.aliyun.com/alpine/v3.6/main/\nhttps://mirrors.aliyun.com/alpine/v3.6/community/&#x27;</span> &gt; /etc/apk/repositories &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apk update &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apk upgrade &amp;&amp; \</span></span><br><span class="line"><span class="bash">    apk add --no-cache curl</span></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>查看镜像大小</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker images</span></span><br><span class="line">REPOSITORY            TAG           IMAGE ID       CREATED             SIZE</span><br><span class="line">curl                  v5            7f735bb213be   11 seconds ago      10.1MB</span><br></pre></td></tr></table></figure>
+
+<p>此时我们的镜像来到了10MB。使用alpine镜像包管理工具是apk，一些软件包名可能不一样。最大的区别在于Alpine 采用的链接库是 <a target="_blank" rel="noopener" href="https://musl.libc.org/">musl libc</a> 而不是 <a target="_blank" rel="noopener" href="https://www.etalabs.net/compare_libcs.html">glibc</a> 系列。</p>
+<h5 id="2-上下文管理"><a href="#2-上下文管理" class="headerlink" title="2.上下文管理"></a>2.上下文管理</h5><p>我们经常会用到的COPY指令</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">COPY</span><span class="bash"> . /server/dir</span></span><br></pre></td></tr></table></figure>
+
+<p>COPY会把<strong>整个</strong> <strong>构建上下文</strong>复制到镜像中，并生产新的缓存层。为了不必要的文件如日志、缓存文件、Git 历史记录被加载到构建上下文，我们最好添加**.dockerignore**用于忽略非必须文件。这也是精简镜像关键一步，同时能更好的保证我们构建的镜像安全性。</p>
+<h5 id="3-及时清理下载"><a href="#3-及时清理下载" class="headerlink" title="3.及时清理下载"></a>3.及时清理下载</h5><p>我们有如下Dockerfile</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">..</span><br><span class="line"><span class="keyword">WORKDIR</span><span class="bash"> /tmp</span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> curl -LO https://docker.com/download.zip &amp;&amp; tar -xf download.zip -C /var/www </span></span><br><span class="line"><span class="keyword">RUN</span><span class="bash"> rm  -f download.zip</span></span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>我们虽然使用了<code>rm</code>删除download.zip包，由于镜像分层的问题，download.zip是在新的一层被删除，上一层仍然存在。</p>
+<p>我们要在一层中及时清理下载</p>
+<figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">RUN</span><span class="bash"> curl -LO https://docker.com/download.zip &amp;&amp; tar -xf download.zip -C /var/www &amp;&amp;  rm  -f download.zip</span></span><br></pre></td></tr></table></figure>
+
+<p>另外在安装软件时应及时使用包管理工具清除你下载的软件依赖及缓存，比如在我们dockerfile中使用apt包管理工具做清理。</p>
+<hr>
+<p>关于精简镜像的相关操作介绍到这里。</p>
+<p><strong>希望小作文对你有些许帮助，如果内容有误请指正。</strong></p>
+<p><strong>您可以随意转载、修改、发布本文章，无需经过本人同意。</strong></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/" title="docker 容器如何精简镜像减小体积" target="_blank" rel="external">https://iqsing.github.io/2021/08/31/docker%E5%AE%B9%E5%99%A8%20%E5%A6%82%E4%BD%95%E7%B2%BE%E7%AE%80%E9%95%9C%E5%83%8F%E5%87%8F%E5%B0%8F%E4%BD%93%E7%A7%AF/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    <li class="prev">
+      <a href="/2021/09/13/k8s%E6%9E%B6%E6%9E%84%E4%B8%8E%E7%BB%84%E4%BB%B6%E8%AF%A6%E8%A7%A3/" title="k8s架构与组件详解"><i class="fa fa-angle-left" aria-hidden="true"></i>&nbsp;&nbsp;上一篇</a>
+    </li>
+    
+    
+    <li class="next">
+      <a href="/2021/08/30/Docker%E5%AE%B9%E5%99%A8%20Dockerfile%E6%9E%84%E5%BB%BA%E5%AE%89%E5%85%A8%E9%95%9C%E5%83%8F/" title="Docker容器 Dockerfile构建安全镜像">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>
