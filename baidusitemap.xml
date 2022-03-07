@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://iqsing.github.io/2022/03/07/promql%20%E5%85%A8%E8%A7%A3%E6%9E%90/</loc>
+    <lastmod>2022-03-07</lastmod>
+  </url>
+  <url>
     <loc>https://iqsing.github.io/2022/03/03/prometheus%20k8s%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/</loc>
     <lastmod>2022-03-03</lastmod>
   </url>
