@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>Prometheus TSDB存储原理 | qsing`s blog</title>
+  <meta name="description" content="Prometheus 包含一个存储在本地磁盘的时间序列数据库，同时也支持与远程存储系统集成，比如grafana cloud 提供的免费云存储API，只需将remote_write接口信息填写在Prometheus配置文件即可。  本文不涉及远程存储接口内容，主要介绍Prometheus 时序数据的本地存储实现原理。 什么是时序数据？ 在学习Prometheus TSDB存储原理之前，我们先来认识一">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Prometheus TSDB存储原理">
+<meta property="og:url" content="https://iqsing.github.io/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="Prometheus 包含一个存储在本地磁盘的时间序列数据库，同时也支持与远程存储系统集成，比如grafana cloud 提供的免费云存储API，只需将remote_write接口信息填写在Prometheus配置文件即可。  本文不涉及远程存储接口内容，主要介绍Prometheus 时序数据的本地存储实现原理。 什么是时序数据？ 在学习Prometheus TSDB存储原理之前，我们先来认识一">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220412141006992.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/series.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413104124771.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413120050962.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413120803681.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413121223066.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413121732282.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413113035412.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413113035412.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220414120529698.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413202322093.png">
+<meta property="article:published_time" content="2022-04-15T12:16:21.000Z">
+<meta property="article:modified_time" content="2022-04-14T16:53:21.135Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="tsdb">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220412141006992.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories active">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">10</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">13</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/network/">network</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/prometheus/">prometheus</a><span class="category-list-count">3</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PromQL/" rel="tag">PromQL</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/helm/" rel="tag">helm</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/https/" rel="tag">https</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service-discovery/" rel="tag">service-discovery</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tsdb/" rel="tag">tsdb</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/PromQL/" style="font-size: 13px;">PromQL</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/helm/" style="font-size: 13px;">helm</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/https/" style="font-size: 13px;">https</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/service-discovery/" style="font-size: 13px;">service-discovery</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/tsdb/" style="font-size: 13px;">tsdb</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/04/">四月 2022</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">三月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">二月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" class="title">Prometheus TSDB存储原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-04-15T12:16:21.000Z" itemprop="datePublished">2022-04-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/03/07/promql%20%E5%85%A8%E8%A7%A3%E6%9E%90/" class="title">PromQL全解析</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-03-07T05:16:21.000Z" itemprop="datePublished">2022-03-07</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/03/03/prometheus%20k8s%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/" class="title">prometheus k8s服务发现</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-03-03T12:16:21.000Z" itemprop="datePublished">2022-03-03</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/k8s/">k8s</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/02/14/k8s%20%E9%80%9A%E8%BF%87%E5%8C%85%E7%AE%A1%E7%90%86%E5%99%A8helm%E5%8F%91%E5%B8%83%E5%BA%94%E7%94%A8/" class="title">k8s 通过helm发布应用</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-02-13T16:47:21.000Z" itemprop="datePublished">2022-02-14</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/network/">network</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/02/07/%E7%90%86%E8%A7%A3https%E4%B8%AD%E7%9A%84%E5%AE%89%E5%85%A8%E5%8F%8A%E5%85%B6%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/" class="title">理解https中的安全及其实现原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-02-06T16:47:21.000Z" itemprop="datePublished">2022-02-07</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-Prometheus TSDB存储原理" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      Prometheus TSDB存储原理
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" class="article-date">
+	  <time datetime="2022-04-15T12:16:21.000Z" itemprop="datePublished">2022-04-15</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/prometheus/">prometheus</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/tsdb/" rel="tag">tsdb</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 2.8k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 10(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>Prometheus 包含一个存储在本地磁盘的时间序列数据库，同时也支持与远程存储系统集成，比如<code>grafana cloud</code> 提供的免费云存储API，只需将<code>remote_write</code>接口信息填写在Prometheus配置文件即可。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220412141006992.png" alt="image-20220412141006992"></p>
+<p>本文不涉及远程存储接口内容，主要介绍Prometheus 时序数据的本地存储实现原理。</p>
+<h4 id="什么是时序数据？"><a href="#什么是时序数据？" class="headerlink" title="什么是时序数据？"></a>什么是时序数据？</h4><hr>
+<p>在学习Prometheus TSDB存储原理之前，我们先来认识一下Prometheus TSDB、InfluxDB这类时序数据库的时序数据指的是什么？</p>
+<p>时序数据通常以(key,value)的形式出现，在时间序列采集点上所对应值的集，即每个数据点都是一个由时间戳和值组成的元组。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">identifier-&gt;(t0,v0),(t1,v1),(t2,v2)...</span><br></pre></td></tr></table></figure>
+
+<p>Prometheus TSDB的数据模型</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;metric name&gt;&#123;&lt;label name&gt;=&lt;label value&gt;, ...&#125; </span><br></pre></td></tr></table></figure>
+
+<p>具体到某个实例中</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">requests_total&#123;method=&quot;POST&quot;, handler=&quot;/messages&quot;&#125;  </span><br></pre></td></tr></table></figure>
+
+<p>在存储时可以通过name label来标记<code>metric name</code>，再通过标识符@来标识时间，这样构成了一个完整的时序数据样本。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"> ----------------------------------------key-----------------------------------------------value---------</span><br><span class="line">&#123;__name__=&quot;requests_total&quot;,method=&quot;POST&quot;, handler=&quot;/messages&quot;&#125;   @1649483597.197             52</span><br></pre></td></tr></table></figure>
+
+<p>一个时间序列是一组时间上严格单调递增的数据点序列，它可以通过metric来寻址。抽象成二维平面来看，二维平面的横轴代表单调递增的时间，<code>metrics </code>遍及整个纵轴。在提取样本数据时只要给定时间窗口和metric就可以得到value</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/series.png" alt="series"></p>
+<h3 id="时序数据如何在Prometheus-TSDB存储？"><a href="#时序数据如何在Prometheus-TSDB存储？" class="headerlink" title="时序数据如何在Prometheus TSDB存储？"></a>时序数据如何在Prometheus TSDB存储？</h3><hr>
+<p>上面我们简单了解了时序数据，接下来我们展开Prometheus TSDB存储（V3引擎）</p>
+<h5 id="Prometheus-TSDB-概览"><a href="#Prometheus-TSDB-概览" class="headerlink" title="Prometheus TSDB 概览"></a>Prometheus TSDB 概览</h5><p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413104124771.png" alt="image-20220413104124771"></p>
+<p>在上图中，Head 块是TSDB的内存块，灰色块Block是磁盘上的持久块。</p>
+<p>首先传入的样本（t,v）进入 Head 块，为了防止内存数据丢失先做一次**预写日志 (WAL)<strong>，并在内存中停留一段时间，然后刷新到磁盘并进行</strong>内存映射(M-map)**。当这些内存映射的块或内存中的块老化到某个时间点时，会作为持久块Block存储到磁盘。接下来多个Block在它们变旧时被合并，并在超过保留期限后被清理。    </p>
+<h5 id="Head中样本的生命周期"><a href="#Head中样本的生命周期" class="headerlink" title="Head中样本的生命周期"></a>Head中样本的生命周期</h5><p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413120050962.png" alt="image-20220413120050962"></p>
+<p>当一个样本传入时，它会被加载到Head中的active chunk（红色块），这是唯一一个可以主动写入数据的单元，为了防止内存数据丢失还会做一次**预写日志 (WAL)**。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413120803681.png" alt="image-20220413120803681"></p>
+<p>一旦active chunk被填满时（超过2小时或120样本），将旧的数据截断为head_chunk1。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413121223066.png" alt="image-20220413121223066"></p>
+<p>head_chunk1被刷新到磁盘然后进行内存映射。active chunk继续写入数据、截断数据、写入到内存映射，如此反复。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413121732282.png" alt="image-20220413121732282"></p>
+<p>内存映射应该只加载最新的、最被频繁使用的数据，所以Prometheus TSDB将就是旧数据刷新到磁盘持久化存储Block，如上1-4为旧数据被写入到下图的Block中。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413113035412.png" alt="image-20220413113035412"></p>
+<p>此时我们再来看一下Prometheus TSDB 数据目录基本结构，好像更清晰了一些。</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">./data</span><br><span class="line">├── 01BKGV7JBM69T2G1BGBGM6KB12    </span><br><span class="line">│   └── meta.json</span><br><span class="line">├── 01BKGTZQ1SYQJTR4PB43C8PD98   # block ID</span><br><span class="line">│   ├── chunks  	   # Block中的chunk文件</span><br><span class="line">│   │   └── 000001     </span><br><span class="line">│   ├── tombstones     # 数据删除记录文件</span><br><span class="line">│   ├── index          # 索引</span><br><span class="line">│   └── meta.json	   # bolck元信息</span><br><span class="line">├── chunks_head		   # head内存映射</span><br><span class="line">│   └── 000001		  </span><br><span class="line">└── wal			       # 预写日志</span><br><span class="line">    ├── 000000002	  </span><br><span class="line">    └── checkpoint.00000001</span><br><span class="line">        └── 00000000</span><br></pre></td></tr></table></figure>
+
+<h5 id="WAL-中checkpoint的作用"><a href="#WAL-中checkpoint的作用" class="headerlink" title="WAL 中checkpoint的作用"></a>WAL 中checkpoint的作用</h5><p>我们需要定期删除旧的 wal 数据，否则磁盘最终会被填满，并且在TSDB重启时 replay wal 事件时会占用大量时间，所以wal中任何不再需要的数据，都需要被清理。而checkpoint会将wal 清理过后的数据做过滤写成新的段。</p>
+<p>如下有6个wal数据段</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">data</span><br><span class="line">└── wal</span><br><span class="line">    ├── 000000</span><br><span class="line">    ├── 000001</span><br><span class="line">    ├── 000002</span><br><span class="line">    ├── 000003</span><br><span class="line">    ├── 000004</span><br><span class="line">    └── 000005</span><br></pre></td></tr></table></figure>
+
+<p>现在我们要清理时间点<code>T</code>之前的样本数据，假设为前4个数据段：</p>
+<p>检查点操作将按<code>000000</code> <code>000001</code> <code>000002</code> <code>000003</code>顺序遍历所有记录，并且：</p>
+<ol>
+<li>删除不再在 Head 中的所有序列记录。</li>
+<li>丢弃所有 time 在<code>T</code>之前的样本。</li>
+<li>删除<code>T</code>之前的所有 tombstone 记录。</li>
+<li>重写剩余的序列、样本和tombstone记录（与它们在 WAL 中出现的顺序相同）。</li>
+</ol>
+<p>checkpoint被命名为创建checkpoint的最后一个段号<code>checkpoint.X</code></p>
+<p>这样我们得到了新的wal数据，当wal在replay时先找checkpoint，先从checkpoint中的数据段回放，然后是checkpoint.000003的下一个数据段000004</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">data</span><br><span class="line">└── wal</span><br><span class="line">    ├── checkpoint.000003</span><br><span class="line">    |   ├── 000000</span><br><span class="line">    |   └── 000001</span><br><span class="line">    ├── 000004</span><br><span class="line">    └── 000005</span><br></pre></td></tr></table></figure>
+
+<h5 id="Block的持久化存储"><a href="#Block的持久化存储" class="headerlink" title="Block的持久化存储"></a>Block的持久化存储</h5><p>上面我们认识了wal和chunks_head的存储构造，接下来是Block，什么是持久化Block？在什么时候创建？为啥要合并Block?</p>
+<p>Block的目录结构</p>
+<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">├── 01BKGTZQ1SYQJTR4PB43C8PD98   # block ID</span><br><span class="line">│   ├── chunks  	   # Block中的chunk文件</span><br><span class="line">│   │   └── 000001     </span><br><span class="line">│   ├── tombstones     # 数据删除记录文件</span><br><span class="line">│   ├── index          # 索引</span><br><span class="line">│   └── meta.json	   # bolck元信息</span><br></pre></td></tr></table></figure>
+
+<p>磁盘上的Block是固定时间范围内的chunk的集合，由它自己的索引组成。其中包含多个文件的目录。每个Block都有一个唯一的 ID（ULID），他这个ID是可排序的。当我们需要更新、修改Block中的一些样本时，Prometheus TSDB只能重写整个Block，并且新块具有新的 ID（为了实现后面提到的索引）。如果需要删除的话Prometheus TSDB通过tombstones 实现了在不触及原始样本的情况下进行清理。</p>
+<p><strong>tombstones</strong> 可以认为是一个删除标记，它记载了我们在读取序列期间要忽略哪些时间范围。tombstones 是Block中唯一在写入数据后用于存储删除请求所创建和修改的文件。</p>
+<p>tombstones中的记录数据结构如下，分别对应需要忽略的序列、开始和结束时间。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">┌────────────────────────┬─────────────────┬─────────────────┐</span><br><span class="line">│ series ref &lt;uvarint64&gt; │ mint &lt;varint64&gt; │ maxt &lt;varint64&gt; │</span><br><span class="line">└────────────────────────┴─────────────────┴─────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p><strong>meta.json</strong></p>
+<p>meta.json包含了整个Block的所有元数据</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    &quot;ulid&quot;: &quot;01EM6Q6A1YPX4G9TEB20J22B2R&quot;,</span><br><span class="line">    &quot;minTime&quot;: 1602237600000,</span><br><span class="line">    &quot;maxTime&quot;: 1602244800000,</span><br><span class="line">    &quot;stats&quot;: &#123;</span><br><span class="line">        &quot;numSamples&quot;: 553673232,</span><br><span class="line">        &quot;numSeries&quot;: 1346066,</span><br><span class="line">        &quot;numChunks&quot;: 4440437</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;compaction&quot;: &#123;</span><br><span class="line">        &quot;level&quot;: 1,</span><br><span class="line">        &quot;sources&quot;: [</span><br><span class="line">            &quot;01EM65SHSX4VARXBBHBF0M0FDS&quot;,</span><br><span class="line">            &quot;01EM6GAJSYWSQQRDY782EA5ZPN&quot;</span><br><span class="line">        ]</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;version&quot;: 1</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>记录了人类可读的chunks的开始和结束时间，样本、序列、chunks数量以及合并信息。version告诉Prometheus如何解析metadata</p>
+<p><strong>Block合并</strong></p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413113035412.png" alt="image-20220413113035412"></p>
+<p>我们可以从之前的图中看到当内存映射中chunk跨越2小时（默认）后第一个Block就被创建了，当 Prometheus 创建了一堆Block时，我们需要定期对这些块进行维护，以有效利用磁盘并保持查询的性能。</p>
+<p>Block合并的主要工作是将一个或多个现有块（source blocks or parent blocks）写入一个新块，最后，删除源块并使用新的合并后的Block代替这些源块。</p>
+<p><strong>为什么需要对Block进行合并？</strong></p>
+<ol>
+<li>上面对tombstones介绍我们知道Prometheus在对数据的删除操作会记录在单独文件stombstone中，而数据仍保留在磁盘上。因此，当stombstone序列超过某些百分比时，需要从磁盘中删除该数据。</li>
+<li>如果样本数据值波动非常小，相邻两个Block中的大部分数据是相同的。对这些Block做合并的话可以减少重复数据，从而节省磁盘空间。</li>
+<li>当查询命中大于1个Block时，必须合并每个块的结果，这可能会产生一些额外的开销。</li>
+<li>如果有重叠的Block（在时间上重叠），查询它们还要对Block之间的样本进行重复数据删除，合并这些重叠块避免了重复数据删除的需要。</li>
+<li><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220414120529698.png" alt="image-20220414120529698"></li>
+</ol>
+<p>如上图示例所示，我们有一组顺序的Block<code>[1, 2, 3, 4]</code>。数据块1，2，和3可以被合并形成的新的块是<code>[1, 4]</code>。或者成对压缩为[1，3]。 所有的时间序列数据仍然存在，但是现在总体的数据块更少。 这显著降低了查询成本。</p>
+<p><strong>Block是如何删除的？</strong></p>
+<p>对于源数据的删除Prometheus TSDB采用了一种简单的方式：即删除该目录下不在我们保留时间窗口的块。 </p>
+<p>如下图所示，块1可以安全地被删除，而2必须保留到完全落在边界之后</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/markdown_imgimage-20220413202322093.png" alt="image-20220413202322093"></p>
+<p>因为Block合并的存在，意味着获取越旧的数据，数据块可能就变得越大。 因此必须得有一个合并的上限，，这样块就不会增长到跨越整个数据库。通常我们可以根据保留窗口设置百分比。</p>
+<h3 id="如何从大量的series中检索出数据？"><a href="#如何从大量的series中检索出数据？" class="headerlink" title="如何从大量的series中检索出数据？"></a>如何从大量的series中检索出数据？</h3><hr>
+<p>在Prometheus TSDB V3引擎中使用了倒排索引，倒排索引基于它们内容的子集提供对数据项的快速查找，例如我们要找出所有带有标签<code>app =&quot;nginx&quot;</code>的序列，而无需遍历每一个序列然后再检查它是否包含该标签。</p>
+<p>首先我们给每个序列分配一个唯一ID，查询ID的复杂度是O(1)，然后给每个标签建一个倒排ID表。比如包含<code>app =&quot;nginx&quot;</code>标签的ID为1,11,111那么标签”nginx”的倒排序索引为[1,11,111]，这样一来如果n是我们的序列总数，m是查询的结果大小，那么使用倒排索引的查询复杂度是O(m)，也就是说查询的复杂度由m的数量决定。但是在最坏的情况下，比如我们每个序列都有一个“nginx”的标签，显然此时的复杂度变为O(n)了，如果是个别标签的话无可厚非，只能稍加等待了，但是现实并非如此。</p>
+<p>标签被关联到数百万序列是很常见的，并且往往每次查询会检索多个标签，比如我们要查询这样一个序列<strong>app =“dev”AND app =“ops”</strong> 在最坏情况下复杂度是O(n^2)，接着更多标签复杂度指数增长到O(n^3)、O(n^4)、O(n^5)… 这是不可接受的。那咋办呢？</p>
+<p>如果我们将倒排表进行排序会怎么样？</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&quot;app=dev&quot; -&gt; [100,1500,20000,51166]</span><br><span class="line">&quot;app=ops&quot; -&gt; [2,4,8,10,50,100,20000]</span><br></pre></td></tr></table></figure>
+
+<p>他们的交集为[100,20000]，要快速实现这一点，我们可以通过2个游标从列表值较小的一端率先推进，当值相等时就是可以加入到结果集合当中。这样的搜索成本显然更低，在k个倒排表搜索的复杂度为O(k*n)而非最坏情况下O(n^k) </p>
+<p>剩下就是维护这个索引，通过维护时间线与ID、标签与倒排表的映射关系，可以保证查询的高效率。</p>
+<hr>
+<p>以上我们从较浅的层面了解一下Prometheus TSDB存储相关的内容，本文仍然有很多细节没有提及，比如wal如何做压缩与回放，mmap的原理，TSDB存储文件的数据结构等等，如果你需要进一步学习可移步参考文章。通过博客阅读：<a href="https://iqsing.github.io/">iqsing.github.io</a></p>
+<hr>
+<p>本文参考于：</p>
+<p>Prometheus维护者Ganesh Vernekar的系列博客<a target="_blank" rel="noopener" href="https://ganeshvernekar.com/blog/prometheus-tsdb-the-head-block/">Prometheus TSDB</a>  </p>
+<p>Prometheus维护者Fabian的博客文章<a target="_blank" rel="noopener" href="https://fabxc.org/tsdb/">Writing a Time Series Database from Scratch</a>（原文已失效）</p>
+<p><a target="_blank" rel="noopener" href="https://www.youtube.com/watch?v=b_pEevMAC3I">PromCon 2017: Storing 16 Bytes at Scale - Fabian Reinartz</a></p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" title="Prometheus TSDB存储原理" target="_blank" rel="external">https://iqsing.github.io/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    
+    <li class="next">
+      <a href="/2022/03/07/promql%20%E5%85%A8%E8%A7%A3%E6%9E%90/" title="PromQL全解析">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>
