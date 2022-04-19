@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://iqsing.github.io/2022/04/19/Go%E9%80%9A%E8%BF%87cobra%E5%BF%AB%E9%80%9F%E6%9E%84%E5%BB%BA%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%BA%94%E7%94%A8/</loc>
+    <lastmod>2022-04-19</lastmod>
+  </url>
+  <url>
     <loc>https://iqsing.github.io/2022/03/03/prometheus%20k8s%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/</loc>
     <lastmod>2022-04-14</lastmod>
   </url>
