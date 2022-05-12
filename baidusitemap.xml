@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
+    <loc>https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/</loc>
+    <lastmod>2022-05-12</lastmod>
+  </url>
+  <url>
     <loc>https://iqsing.github.io/2022/04/19/Go%E9%80%9A%E8%BF%87cobra%E5%BF%AB%E9%80%9F%E6%9E%84%E5%BB%BA%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%BA%94%E7%94%A8/</loc>
     <lastmod>2022-04-19</lastmod>
   </url>

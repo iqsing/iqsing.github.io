@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>通过Go实现AES加密和解密工具 | qsing`s blog</title>
+  <meta name="description" content="本文包含如下两个内容：  AES加密介绍及实现原理 Go实现AES加密和解密工具   AES加密介绍及实现原理AES( advanced encryption standard)使用相同密钥进行加密和解密，也就是对称加密。其他的对称加密如DES，由于DES密钥长度只有56位如今的算力甚至可以在5分钟内破解，而AES最高级别达到了256位密钥长度，如果采用穷举法，目前来看AES是一种”无法“被破解的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="通过Go实现AES加密和解密工具">
+<meta property="og:url" content="https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="本文包含如下两个内容：  AES加密介绍及实现原理 Go实现AES加密和解密工具   AES加密介绍及实现原理AES( advanced encryption standard)使用相同密钥进行加密和解密，也就是对称加密。其他的对称加密如DES，由于DES密钥长度只有56位如今的算力甚至可以在5分钟内破解，而AES最高级别达到了256位密钥长度，如果采用穷举法，目前来看AES是一种”无法“被破解的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/AES.jpg">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/aes_all.gif">
+<meta property="og:image" content="https://www.simplilearn.com/ice9/free_resources_article_thumb/process.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/5705581294780416.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/5693149713268736.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/6012989015588864.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/4888084853293056.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220511221615231.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220511222418474.png">
+<meta property="article:published_time" content="2022-05-12T12:16:21.000Z">
+<meta property="article:modified_time" content="2022-05-12T04:29:40.853Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="aes">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/AES.jpg">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>您可以随意修改、发布本站内容，无需经过我本人同意!</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">12</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">13</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/network/">network</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/prometheus/">prometheus</a><span class="category-list-count">3</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PromQL/" rel="tag">PromQL</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/aes/" rel="tag">aes</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/cobra/" rel="tag">cobra</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/helm/" rel="tag">helm</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/https/" rel="tag">https</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service-discovery/" rel="tag">service-discovery</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tsdb/" rel="tag">tsdb</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/PromQL/" style="font-size: 13px;">PromQL</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/aes/" style="font-size: 13px;">aes</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/cobra/" style="font-size: 13px;">cobra</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/helm/" style="font-size: 13px;">helm</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/https/" style="font-size: 13px;">https</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/service-discovery/" style="font-size: 13px;">service-discovery</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/tsdb/" style="font-size: 13px;">tsdb</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/05/">五月 2022</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/04/">四月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">三月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">二月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/golang/">golang</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/" class="title">通过Go实现AES加密和解密工具</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-05-12T12:16:21.000Z" itemprop="datePublished">2022-05-12</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/golang/">golang</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/04/19/Go%E9%80%9A%E8%BF%87cobra%E5%BF%AB%E9%80%9F%E6%9E%84%E5%BB%BA%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%BA%94%E7%94%A8/" class="title">Go通过cobra快速构建命令行应用</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-04-19T12:16:21.000Z" itemprop="datePublished">2022-04-19</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" class="title">Prometheus TSDB存储原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-04-15T12:16:21.000Z" itemprop="datePublished">2022-04-15</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/03/07/promql%20%E5%85%A8%E8%A7%A3%E6%9E%90/" class="title">PromQL全解析</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-03-07T05:16:21.000Z" itemprop="datePublished">2022-03-07</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/03/03/prometheus%20k8s%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0/" class="title">prometheus k8s服务发现</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-03-03T12:16:21.000Z" itemprop="datePublished">2022-03-03</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-通过Go实现AES加密和解密工具" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      通过Go实现AES加密和解密工具
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/" class="article-date">
+	  <time datetime="2022-05-12T12:16:21.000Z" itemprop="datePublished">2022-05-12</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/golang/">golang</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/aes/" rel="tag">aes</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 1.9k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 8(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>本文包含如下两个内容：</p>
+<ul>
+<li>AES加密介绍及实现原理</li>
+<li>Go实现AES加密和解密工具</li>
+</ul>
+<hr>
+<h4 id="AES加密介绍及实现原理"><a href="#AES加密介绍及实现原理" class="headerlink" title="AES加密介绍及实现原理"></a>AES加密介绍及实现原理</h4><p><strong>AES( advanced encryption standard)<strong>使用相同密钥进行加密和解密，也就是</strong>对称加密</strong>。其他的对称加密如DES，由于DES密钥长度只有56位如今的算力甚至可以在5分钟内破解，而AES最高级别达到了256位密钥长度，如果采用穷举法，目前来看AES是一种”无法“被破解的加密存在。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/AES.jpg" alt="AES"></p>
+<p>关于<strong>非对称</strong>加密我们在之前有一篇文章《理解https中的安全及其实现原理》进行了介绍，有兴趣的可翻看查看。</p>
+<h5 id="AES用在哪里？"><a href="#AES用在哪里？" class="headerlink" title="AES用在哪里？"></a>AES用在哪里？</h5><p>如果你正在浏览本文，那么你就在使用AES（https协议中一部分使用了对称加密）。</p>
+<ul>
+<li><strong>绿色上网：</strong>通过加密安全地连接到另一台搬石头砸脚的服务器。</li>
+<li><strong>无线网络WIFI：</strong>和WAP2一起使用。</li>
+<li><strong>应用程序：</strong>wechat、JD、Alipay等使用 AES 加密照片和消息或支付信息。</li>
+<li><strong>存档和压缩工具：</strong>7z、WinZip 和 RAR。</li>
+<li><strong>操作系统组件：</strong>一些操作系统组件（如文件系统）使用高级加密标准来确保安全性。</li>
+<li><strong>编程语言库：</strong> Go、Python 和 C++ 等编码库实现了的AES加密（等会使用到）。</li>
+</ul>
+<h5 id="AES加密是如何实现的？"><a href="#AES加密是如何实现的？" class="headerlink" title="AES加密是如何实现的？"></a>AES加密是如何实现的？</h5><p>参考：</p>
+<p><a target="_blank" rel="noopener" href="https://www.educative.io/edpresso/what-is-the-aes-algorithm">what-is-the-aes-algorithm?</a></p>
+<p><a target="_blank" rel="noopener" href="https://cybernews.com/resources/what-is-aes-encryption/">What is AES encryption and how does it work?</a></p>
+<p><a target="_blank" rel="noopener" href="https://en.wikipedia.org/wiki/Block_cipher_mode_of_operation">Block cipher mode of operation</a></p>
+<p>从宏观上来看AES加密过程中的一轮（根据不同的密钥长度，轮数不一样，下面会说到）如下：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/aes_all.gif" alt="aes_all"></p>
+<h6 id="1-数据分块"><a href="#1-数据分块" class="headerlink" title="1.数据分块"></a>1.数据分块</h6><p>首先把明文按照128bit拆分成若干个明文块（图上黄色块），一个字节包含 8 位，布局为 4×4矩阵（上图黄色部分），对最后一块填充至128bit，填充方式有PKCS7Padding（采用）/PKCS5Padding/ZeroPadding，无论咋填充最后解密时都要去除这些多余的填充。</p>
+<h6 id="2-密钥扩展"><a href="#2-密钥扩展" class="headerlink" title="2.密钥扩展"></a>2.密钥扩展</h6><p>AES通过<a target="_blank" rel="noopener" href="https://www.samiam.org/key-schedule.html">Rijndael’s key schedule</a> 将密钥被扩展为 (n+1) 个密钥，其中 n 是加密过程中要遵循的轮数。AES每个标准规定了所要加密的轮数，对于128位密钥，轮数是 10，要生成的密钥个数为 10+1，总共 11 个密钥。</p>
+<table>
+<thead>
+<tr>
+<th>标准</th>
+<th>密钥长度</th>
+<th>轮数</th>
+<th>分组长度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AES-128</td>
+<td>128位(16字节）</td>
+<td>10</td>
+<td>128位（16字节）</td>
+</tr>
+<tr>
+<td>AES-192</td>
+<td>192位(24字节）</td>
+<td>12</td>
+<td>128位（16字节）</td>
+</tr>
+<tr>
+<td>AES-256</td>
+<td>256位(32字节）</td>
+<td>14</td>
+<td>128位（16字节）</td>
+</tr>
+</tbody></table>
+<p>每一轮所要做的包括：字节替代（SubBytes）、行移位（ShiftRows）、列混淆（MixColumns）、加轮密钥（AddRoundKey）</p>
+<p><img src="https://www.simplilearn.com/ice9/free_resources_article_thumb/process.png" alt="过程"></p>
+<h6 id="3-字节替代（SubBytes）"><a href="#3-字节替代（SubBytes）" class="headerlink" title="3.字节替代（SubBytes）"></a>3.<strong>字节替代（SubBytes）</strong></h6><p>每轮开始，首先进行SubBytes，字节根据预定义的 <strong>Rijndael S-box</strong>（可以简单认为是一个转换表）规定的规则进行替换。对a[i,j]中的每个字节进行一次转换后得到b[i,j]</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/5705581294780416.png" alt="widget"></p>
+<h6 id="4-行移位（ShiftRows）"><a href="#4-行移位（ShiftRows）" class="headerlink" title="4.行移位（ShiftRows）"></a>4.行移位（ShiftRows）</h6><p>对上一步得到矩阵进行ShiftRows，第一行不变，第二行移动1位，第三行2位，第四行3位。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/5693149713268736.png" alt="小部件"></p>
+<h6 id="5-列混淆（MixColumns）"><a href="#5-列混淆（MixColumns）" class="headerlink" title="5.列混淆（MixColumns）"></a>5.列混淆（MixColumns）</h6><p>再对矩阵的每一列和<strong>修补矩阵fixed matrix</strong>的二维常量数组做矩阵相乘，得到对应的输出列。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/6012989015588864.png" alt="小部件"></p>
+<h6 id="6-加轮密钥（AddRoundKey）"><a href="#6-加轮密钥（AddRoundKey）" class="headerlink" title="6.加轮密钥（AddRoundKey）"></a>6.加轮密钥（AddRoundKey）</h6><p>先将扩展密钥Kn排列成4×4矩阵，然后让输入数组的每一个字节a[i,j]与密钥对应位置的字节k[i,j]异或一次，得到输出b[i,j]。最后一轮不参与AddRoundKey</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/4888084853293056.png" alt="小部件"></p>
+<p>经过如上的10轮操作之后，得到了一个明文块的加密字符。解密则进行反向加密。</p>
+<h5 id="AES加密模式"><a href="#AES加密模式" class="headerlink" title="AES加密模式"></a>AES加密模式</h5><h6 id="ECB"><a href="#ECB" class="headerlink" title="ECB"></a>ECB</h6><p>在上面加密过程中每一个明文块都是独立进行加密的，简单且高效，但是如果一个段数据存在相关的明文块，则加密后的密文也会相同，对安全性也有一定影响。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220511221615231.png" alt="image-20220511221615231"></p>
+<h6 id="CBC"><a href="#CBC" class="headerlink" title="CBC"></a>CBC</h6><p>CBC加密模式如下图所示，初始向量IV和明文异或，每个块的密文作为后续块的“向量”，让每一个密文独一无二。我们待会采用这种模式。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220511222418474.png" alt="image-20220511222418474.png"></p>
+<hr>
+<h3 id="Go实现AES加密工具scode"><a href="#Go实现AES加密工具scode" class="headerlink" title="Go实现AES加密工具scode"></a>Go实现AES加密工具scode</h3><p>ok，上面大致了解AES加密是如何工作起来的，接下来通过Go中的crypto/aes和crypto/cipher包实现的AES加密解密工具。</p>
+<p>PKCS7Padding将待补足字节数作为填充的字节</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// pkcs7Padding 填充</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">pkcs7Padding</span><span class="params">(data []<span class="keyword">byte</span>, blockSize <span class="keyword">int</span>)</span> []<span class="title">byte</span></span> &#123;</span><br><span class="line">    <span class="comment">//判断缺少几位长度。最少1，最多 blockSize</span></span><br><span class="line">    padding := blockSize - <span class="built_in">len</span>(data)%blockSize</span><br><span class="line">    <span class="comment">//补足位数。把切片[]byte&#123;byte(padding)&#125;复制padding个</span></span><br><span class="line">    padText := bytes.Repeat([]<span class="keyword">byte</span>&#123;<span class="keyword">byte</span>(padding)&#125;, padding)</span><br><span class="line">    <span class="keyword">return</span> <span class="built_in">append</span>(data, padText...)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// pkcs7UnPadding 移除</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">pkcs7UnPadding</span><span class="params">(data []<span class="keyword">byte</span>)</span> <span class="params">([]<span class="keyword">byte</span>, error)</span></span> &#123;</span><br><span class="line">    length := <span class="built_in">len</span>(data)</span><br><span class="line">    <span class="keyword">if</span> length == <span class="number">0</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">nil</span>, errors.New(<span class="string">&quot;加密字符串错误！&quot;</span>)</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">//获取填充的个数</span></span><br><span class="line">    unPadding := <span class="keyword">int</span>(data[length<span class="number">-1</span>])</span><br><span class="line">    <span class="keyword">return</span> data[:(length - unPadding)], <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>使用 cipher的CBC模式对block加密和解密</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// AesEncrypt 加密</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">AesEncrypt</span><span class="params">(data []<span class="keyword">byte</span>, key []<span class="keyword">byte</span>)</span> <span class="params">([]<span class="keyword">byte</span>, error)</span></span> &#123;    </span><br><span class="line">    <span class="comment">// NewCipher creates and returns a new cipher.Block. The key argument should be the AES key, either 16, 24, or 32 bytes to select AES-128, AES-192, or AES-256.</span></span><br><span class="line">    block, err := aes.NewCipher(key)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">//判断加密快的大小</span></span><br><span class="line">    blockSize := block.BlockSize()</span><br><span class="line">    <span class="comment">//填充</span></span><br><span class="line">    encryptBytes := pkcs7Padding(data, blockSize)</span><br><span class="line">    <span class="comment">//初始化加密数据接收切片</span></span><br><span class="line">    crypted := <span class="built_in">make</span>([]<span class="keyword">byte</span>, <span class="built_in">len</span>(encryptBytes))</span><br><span class="line">    <span class="comment">//使用cbc加密模式</span></span><br><span class="line">    blockMode := cipher.NewCBCEncrypter(block, key[:blockSize])</span><br><span class="line">    <span class="comment">//执行加密</span></span><br><span class="line">    blockMode.CryptBlocks(crypted, encryptBytes)</span><br><span class="line">    <span class="keyword">return</span> crypted, <span class="literal">nil</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// AesDecrypt 解密</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">AesDecrypt</span><span class="params">(data []<span class="keyword">byte</span>, key []<span class="keyword">byte</span>)</span> <span class="params">([]<span class="keyword">byte</span>, error)</span></span> &#123;</span><br><span class="line">    block, err := aes.NewCipher(key)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">//获取块的大小</span></span><br><span class="line">    blockSize := block.BlockSize()</span><br><span class="line">    <span class="comment">//使用cbc</span></span><br><span class="line">    blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])</span><br><span class="line">    <span class="comment">//初始化解密数据接收切片</span></span><br><span class="line">    crypted := <span class="built_in">make</span>([]<span class="keyword">byte</span>, <span class="built_in">len</span>(data))</span><br><span class="line">    <span class="comment">//执行解密</span></span><br><span class="line">    blockMode.CryptBlocks(crypted, data)</span><br><span class="line">    <span class="comment">//去填充</span></span><br><span class="line">    crypted, err = pkcs7UnPadding(crypted)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> crypted, <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>循环从文件中读取100mb源数据用于加密后将密文写入文件，解密则读取密文解密后将源数据写入文件。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">EncryptFile</span><span class="params">(fileName <span class="keyword">string</span>)</span> <span class="params">(err error)</span></span> &#123;</span><br><span class="line">    f, err := os.Open(fileName)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        fmt.Println(<span class="string">&quot;未找到文件&quot;</span>)</span><br><span class="line">        <span class="keyword">return</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">defer</span> f.Close()</span><br><span class="line"></span><br><span class="line">    fInfo, _ := f.Stat()</span><br><span class="line">    fLen := fInfo.Size()</span><br><span class="line">    fmt.Println(<span class="string">&quot;待处理文件大小:&quot;</span>, fLen)</span><br><span class="line">    maxLen := <span class="number">1024</span> * <span class="number">1024</span> * <span class="number">100</span> <span class="comment">//100mb  每 100mb 进行加密一次</span></span><br><span class="line">    <span class="keyword">var</span> forNum <span class="keyword">int64</span> = <span class="number">0</span></span><br><span class="line">    getLen := fLen</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> fLen &gt; <span class="keyword">int64</span>(maxLen) &#123;</span><br><span class="line">        getLen = <span class="keyword">int64</span>(maxLen)</span><br><span class="line">        forNum = fLen / <span class="keyword">int64</span>(maxLen)</span><br><span class="line">        fmt.Println(<span class="string">&quot;需要加密次数：&quot;</span>, forNum+<span class="number">1</span>)</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// encryptd to file</span></span><br><span class="line">    ff, err := os.OpenFile(<span class="string">&quot;en_&quot;</span>+fileName, os.O_RDWR|os.O_CREATE, <span class="number">0666</span>)</span><br><span class="line">    <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">        fmt.Println(<span class="string">&quot;文件写入错误&quot;</span>)</span><br><span class="line">        <span class="keyword">return</span> err</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">defer</span> ff.Close()</span><br><span class="line">    <span class="comment">//循环加密，并写入文件</span></span><br><span class="line">    <span class="keyword">for</span> i := <span class="number">0</span>; i &lt; <span class="keyword">int</span>(forNum+<span class="number">1</span>); i++ &#123;</span><br><span class="line">        a := <span class="built_in">make</span>([]<span class="keyword">byte</span>, getLen)</span><br><span class="line">        n, err := f.Read(a)</span><br><span class="line">        <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">            fmt.Println(<span class="string">&quot;文件读取错误&quot;</span>)</span><br><span class="line">            <span class="keyword">return</span> err</span><br><span class="line">        &#125;</span><br><span class="line">        getByte, err := EncryptByAes(a[:n])</span><br><span class="line">        <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">            fmt.Println(<span class="string">&quot;加密错误&quot;</span>)</span><br><span class="line">            <span class="keyword">return</span> err</span><br><span class="line">        &#125;</span><br><span class="line">        getBytes := <span class="built_in">append</span>([]<span class="keyword">byte</span>(getByte), []<span class="keyword">byte</span>(<span class="string">&quot;\n&quot;</span>)...)</span><br><span class="line">        <span class="comment">//写入</span></span><br><span class="line">        buf := bufio.NewWriter(ff)</span><br><span class="line">        buf.WriteString(<span class="keyword">string</span>(getBytes[:]))</span><br><span class="line">        buf.Flush()</span><br><span class="line">    &#125;</span><br><span class="line">    ffInfo, _ := ff.Stat()</span><br><span class="line">    fmt.Printf(<span class="string">&quot;加密后文件为：%s，文件大小为：%v Byte \n&quot;</span>, ffInfo.Name(), ffInfo.Size())</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>参考：<a target="_blank" rel="noopener" href="https://www.jianshu.com/p/0caab60fea9f">Golang AES 加密 解密</a></p>
+<p>通过cobra添加命令后，创建命令的匿名函数</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span><span class="params">(cmd *cobra.Command, args []<span class="keyword">string</span>)</span></span> &#123;</span><br><span class="line">    <span class="built_in">copy</span>(PwdKey, readPass())</span><br><span class="line">    Pwd := []<span class="keyword">byte</span>(<span class="string">&quot;csgo!gogo&quot;</span>)</span><br><span class="line">    <span class="keyword">if</span> ByteSliceEqual(PwdKey, Pwd) &#123;</span><br><span class="line">        <span class="comment">//16字节key</span></span><br><span class="line">        PwdKey = <span class="built_in">append</span>(PwdKey, <span class="number">7</span>, <span class="number">3</span>, <span class="number">5</span>, <span class="number">5</span>, <span class="number">6</span>, <span class="number">0</span>, <span class="number">8</span>)</span><br><span class="line">        <span class="keyword">if</span> err := DecryptFile(args[<span class="number">0</span>]); err != <span class="literal">nil</span> &#123;</span><br><span class="line">            <span class="built_in">panic</span>(err)</span><br><span class="line">        &#125;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        fmt.Println(<span class="string">&quot;密码错误&quot;</span>)</span><br><span class="line">        os.Exit(<span class="number">1</span>)</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>使用方式看起来如下：</p>
+<p>scode工具包含2个命令encode和decode，解密文件需要密码。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ./scode  encode xpower.tar.gz</span></span><br><span class="line">待处理文件大小: 3397</span><br><span class="line">加密后文件为：en_xpower.tar.gz，文件大小为：4545 Byte</span><br><span class="line"></span><br><span class="line"><span class="comment"># ./scode  decode en_xpower.tar.gz</span></span><br><span class="line">ENTER PASSWORD: </span><br><span class="line">密码错误</span><br><span class="line"></span><br><span class="line"><span class="comment"># ./scode  decode en_xpower.tar.gz</span></span><br><span class="line">ENTER PASSWORD: </span><br><span class="line">待处理文件大小: 4545</span><br><span class="line">解密后文件为：de_en_xpower.tar.gz，文件大小为：3159 Byte</span><br></pre></td></tr></table></figure>
+
+<p>完整代码：<a target="_blank" rel="noopener" href="https://github.com/iqsing/code/tree/main/scode">https://github.com/iqsing/code/tree/main/scode</a></p>
+<p>通过改进此工具创建一个自己隐私文件加密和解密器。</p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/" title="通过Go实现AES加密和解密工具" target="_blank" rel="external">https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    
+    <li class="next">
+      <a href="/2022/04/19/Go%E9%80%9A%E8%BF%87cobra%E5%BF%AB%E9%80%9F%E6%9E%84%E5%BB%BA%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%BA%94%E7%94%A8/" title="Go通过cobra快速构建命令行应用">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>
