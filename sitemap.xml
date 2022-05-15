@@ -2,6 +2,13 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
+    <loc>https://iqsing.github.io/about/index.html</loc>
+    
+    <lastmod>2022-05-15</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>https://iqsing.github.io/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/</loc>
     
     <lastmod>2022-05-12</lastmod>
@@ -101,13 +108,6 @@
   
   <url>
     <loc>https://iqsing.github.io/categories/index.html</loc>
-    
-    <lastmod>2022-02-04</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>https://iqsing.github.io/about/index.html</loc>
     
     <lastmod>2022-02-04</lastmod>
     
