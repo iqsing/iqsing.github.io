@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang=zh>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, minimal-ui">
+  <meta name="renderer" content="webkit">
+  <meta http-equiv="Cache-Control" content="no-transform" />
+  <meta http-equiv="Cache-Control" content="no-siteapp" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="format-detection" content="telephone=no,email=no,adress=no">
+  <!-- Color theme for statusbar -->
+  <meta name="theme-color" content="#000000" />
+  <!-- 强制页面在当前窗口以独立页面显示,防止别人在框架里调用页面 -->
+  <meta http-equiv="window-target" content="_top" />
+  
+  
+  <title>Go实现一个Prometheus exporter | qsing`s blog</title>
+  <meta name="description" content="Prometheus 官方和社区提供了非常多的exporter，涵盖数据库、中间件、OS、存储、硬件设备等，具体可查看exporters、exporterhub.io，通过这些 exporter 基本可以覆盖80%的监控需求，依然有小部分需要通过自定义脚本或者定制、修改社区exporter实现。本文我们将学习如何通过go编写一个简单的expoter用于暴露OS的负载。 要实现的三个load指标如下">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Go实现一个Prometheus exporter">
+<meta property="og:url" content="https://iqsing.github.io/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/index.html">
+<meta property="og:site_name" content="qsing&#96;s blog">
+<meta property="og:description" content="Prometheus 官方和社区提供了非常多的exporter，涵盖数据库、中间件、OS、存储、硬件设备等，具体可查看exporters、exporterhub.io，通过这些 exporter 基本可以覆盖80%的监控需求，依然有小部分需要通过自定义脚本或者定制、修改社区exporter实现。本文我们将学习如何通过go编写一个简单的expoter用于暴露OS的负载。 要实现的三个load指标如下">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220630172352629.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220701150155913.png">
+<meta property="og:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220701143907873.png">
+<meta property="article:published_time" content="2022-07-01T10:16:21.000Z">
+<meta property="article:modified_time" content="2022-07-01T10:09:40.309Z">
+<meta property="article:author" content="qsing">
+<meta property="article:tag" content="prometheus">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220630172352629.png">
+  <!-- Canonical links -->
+  <link rel="canonical" href="https://iqsing.github.io/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/index.html">
+  
+    <link rel="alternate" href="/atom.xml" title="qsing`s blog" type="application/atom+xml">
+  
+  
+    <link rel="icon" href="/favicon.png" type="image/x-icon">
+  
+  <!-- font-awesome CSS -->
+  <link href="https://cdn.bootcss.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  
+<link rel="stylesheet" href="/css/style.css">
+
+  
+    
+    
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+
+<body class="main-center" itemscope itemtype="http://schema.org/WebPage">
+  <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+  <div class="slimContent">
+    <div class="navbar-header">
+      
+      
+      <div class="profile-block text-center">
+        <a id="avatar" href="https://github.com/iqsing" target="_blank">
+          <img class="img-circle img-rotate" src="/images/avatar.jpg" width="200" height="200">
+        </a>
+        <h2 id="name" class="hidden-xs hidden-sm">qsing</h2>
+        <h3 id="title" class="hidden-xs hidden-sm hidden-md">Devops&amp;SRE</h3>
+        <small id="location" class="text-muted hidden-xs hidden-sm"><i class="fa fa-map-marker"></i> Shenzhen, China</small>
+      </div>
+      
+      <div class="search" id="search-form-wrap">
+
+    <form class="search-form sidebar-form">
+        <div class="input-group">
+            <input type="text" class="search-form-input form-control" placeholder="搜索" />
+            <span class="input-group-btn">
+                <button type="submit" class="search-form-submit btn btn-flat" onclick="return false;"><i class="fa fa-search"></i></button>
+            </span>
+        </div>
+    </form>
+    <div class="ins-search">
+  <div class="ins-search-mask"></div>
+  <div class="ins-search-container">
+    <div class="ins-input-wrapper">
+      <input type="text" class="ins-search-input" placeholder="想要查找什么..." x-webkit-speech />
+      <button type="button" class="close ins-close ins-selectable" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+      <!-- <span class="ins-close ins-selectable"><i class="fa fa-times"></i></span> -->
+    </div>
+    <div class="ins-section-wrapper">
+      <div class="ins-section-container"></div>
+    </div>
+  </div>
+</div>
+
+
+</div>
+      <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target="#main-navbar" aria-controls="main-navbar" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+    </div>
+    <nav id="main-navbar" class="collapse navbar-collapse" itemscope itemtype="http://schema.org/SiteNavigationElement" role="navigation">
+      <ul class="nav navbar-nav main-nav">
+        
+        
+        
+        <li class="menu-item menu-item-home">
+          <a href="/.">
+            
+            <i class="fa fa-fw fa-dashboard"></i>
+            
+            <span class="menu-title">首页</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives">
+            
+            <i class="fa fa-fw fa-delicious"></i>
+            
+            <span class="menu-title">归档</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories">
+            
+            <i class="fa fa-fw fa-folder"></i>
+            
+            <span class="menu-title">分类</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags">
+            
+            <i class="fa fa-fw fa-tags"></i>
+            
+            <span class="menu-title">标签</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-repository">
+          <a href="/repository">
+            
+            <i class="fa fa-fw fa-code"></i>
+            
+            <span class="menu-title">项目</span>
+          </a>
+        </li>
+        
+        
+        
+        <li class="menu-item menu-item-about">
+          <a href="/about">
+            
+            <i class="fa fa-fw fa-coffee"></i>
+            
+            <span class="menu-title">关于</span>
+          </a>
+        </li>
+        
+      </ul>
+      
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    </nav>
+  </div>
+</header>
+
+  
+    <aside class="sidebar" itemscope itemtype="http://schema.org/WPSideBar">
+  <div class="slimContent">
+    
+      <div class="widget">
+    <h2 class="widget-title">[公告]</h2>
+    <HR>
+    <div class="widget-body">
+        <div id="board">
+            
+            <div class="content">
+                <p>如您要转载或修改文章内容应保留尾部链接！</p>
+            </div>
+        </div>
+    </div>
+    <HR>
+</div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">分类</h3>
+    <div class="widget-body">
+      <ul class="category-list"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/">docker</a><span class="category-list-count">10</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/docker/linux/">linux</a><span class="category-list-count">2</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/golang/">golang</a><span class="category-list-count">13</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/">k8s</a><span class="category-list-count">13</span><ul class="category-list-child"><li class="category-list-item"><a class="category-list-link" href="/categories/k8s/docker/">docker</a><span class="category-list-count">1</span></li></ul></li><li class="category-list-item"><a class="category-list-link" href="/categories/linux/">linux</a><span class="category-list-count">2</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/network/">network</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/prometheus/">prometheus</a><span class="category-list-count">4</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/python/">python</a><span class="category-list-count">5</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/tools/">tools</a><span class="category-list-count">1</span></li><li class="category-list-item"><a class="category-list-link" href="/categories/zabbix/">zabbix</a><span class="category-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签</h3>
+    <div class="widget-body">
+      <ul class="tag-list" itemprop="keywords"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Cgroup/" rel="tag">Cgroup</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Copilot/" rel="tag">Copilot</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DaemonSet/" rel="tag">DaemonSet</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DataType/" rel="tag">DataType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DateType/" rel="tag">DateType</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/IO/" rel="tag">IO</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Namespace/" rel="tag">Namespace</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/OverlayFS/" rel="tag">OverlayFS</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PromQL/" rel="tag">PromQL</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/RBAC/" rel="tag">RBAC</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Typora/" rel="tag">Typora</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/aes/" rel="tag">aes</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/api/" rel="tag">api</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/bridge/" rel="tag">bridge</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/celery/" rel="tag">celery</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/cobra/" rel="tag">cobra</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/commandline/" rel="tag">commandline</a><span class="tag-list-count">2</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/configmap/" rel="tag">configmap</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/deployment/" rel="tag">deployment</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/django/" rel="tag">django</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker/" rel="tag">docker</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/docker-compose/" rel="tag">docker-compose</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/dockerfile/" rel="tag">dockerfile</a><span class="tag-list-count">5</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/git/" rel="tag">git</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/golang/" rel="tag">golang</a><span class="tag-list-count">3</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/harbor/" rel="tag">harbor</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/helm/" rel="tag">helm</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/http/" rel="tag">http</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/https/" rel="tag">https</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/ingress/" rel="tag">ingress</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/job/" rel="tag">job</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/k8s/" rel="tag">k8s</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/loadBalancer/" rel="tag">loadBalancer</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/metrics/" rel="tag">metrics</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/network/" rel="tag">network</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/picGo/" rel="tag">picGo</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/prometheus/" rel="tag">prometheus</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/restful/" rel="tag">restful</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/secret/" rel="tag">secret</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service/" rel="tag">service</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/service-discovery/" rel="tag">service-discovery</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/statefulset/" rel="tag">statefulset</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/storage/" rel="tag">storage</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/struct/" rel="tag">struct</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/tsdb/" rel="tag">tsdb</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vim/" rel="tag">vim</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/vue-js/" rel="tag">vue.js</a><span class="tag-list-count">1</span></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/workflow/" rel="tag">workflow</a><span class="tag-list-count">1</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">标签云</h3>
+    <div class="widget-body tagcloud">
+      <a href="/tags/Cgroup/" style="font-size: 13px;">Cgroup</a> <a href="/tags/Copilot/" style="font-size: 13px;">Copilot</a> <a href="/tags/DaemonSet/" style="font-size: 13px;">DaemonSet</a> <a href="/tags/DataType/" style="font-size: 13px;">DataType</a> <a href="/tags/DateType/" style="font-size: 13px;">DateType</a> <a href="/tags/IO/" style="font-size: 13px;">IO</a> <a href="/tags/Namespace/" style="font-size: 13px;">Namespace</a> <a href="/tags/OverlayFS/" style="font-size: 13px;">OverlayFS</a> <a href="/tags/PromQL/" style="font-size: 13px;">PromQL</a> <a href="/tags/RBAC/" style="font-size: 13px;">RBAC</a> <a href="/tags/Typora/" style="font-size: 13px;">Typora</a> <a href="/tags/aes/" style="font-size: 13px;">aes</a> <a href="/tags/api/" style="font-size: 13.33px;">api</a> <a href="/tags/bridge/" style="font-size: 13px;">bridge</a> <a href="/tags/celery/" style="font-size: 13.33px;">celery</a> <a href="/tags/cobra/" style="font-size: 13px;">cobra</a> <a href="/tags/commandline/" style="font-size: 13.33px;">commandline</a> <a href="/tags/configmap/" style="font-size: 13px;">configmap</a> <a href="/tags/deployment/" style="font-size: 13px;">deployment</a> <a href="/tags/django/" style="font-size: 13.67px;">django</a> <a href="/tags/docker/" style="font-size: 13px;">docker</a> <a href="/tags/docker-compose/" style="font-size: 13px;">docker-compose</a> <a href="/tags/dockerfile/" style="font-size: 14px;">dockerfile</a> <a href="/tags/git/" style="font-size: 13px;">git</a> <a href="/tags/golang/" style="font-size: 13.67px;">golang</a> <a href="/tags/harbor/" style="font-size: 13px;">harbor</a> <a href="/tags/helm/" style="font-size: 13px;">helm</a> <a href="/tags/http/" style="font-size: 13px;">http</a> <a href="/tags/https/" style="font-size: 13px;">https</a> <a href="/tags/ingress/" style="font-size: 13px;">ingress</a> <a href="/tags/job/" style="font-size: 13px;">job</a> <a href="/tags/k8s/" style="font-size: 13px;">k8s</a> <a href="/tags/loadBalancer/" style="font-size: 13px;">loadBalancer</a> <a href="/tags/metrics/" style="font-size: 13px;">metrics</a> <a href="/tags/network/" style="font-size: 13px;">network</a> <a href="/tags/picGo/" style="font-size: 13px;">picGo</a> <a href="/tags/prometheus/" style="font-size: 13px;">prometheus</a> <a href="/tags/restful/" style="font-size: 13px;">restful</a> <a href="/tags/secret/" style="font-size: 13px;">secret</a> <a href="/tags/service/" style="font-size: 13px;">service</a> <a href="/tags/service-discovery/" style="font-size: 13px;">service-discovery</a> <a href="/tags/statefulset/" style="font-size: 13px;">statefulset</a> <a href="/tags/storage/" style="font-size: 13px;">storage</a> <a href="/tags/struct/" style="font-size: 13px;">struct</a> <a href="/tags/tsdb/" style="font-size: 13px;">tsdb</a> <a href="/tags/vim/" style="font-size: 13px;">vim</a> <a href="/tags/vue-js/" style="font-size: 13px;">vue.js</a> <a href="/tags/workflow/" style="font-size: 13px;">workflow</a>
+    </div>
+  </div>
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">归档</h3>
+    <div class="widget-body">
+      <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/07/">七月 2022</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/06/">六月 2022</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/05/">五月 2022</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/04/">四月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/03/">三月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/02/">二月 2022</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2022/01/">一月 2022</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/11/">十一月 2021</a><span class="archive-list-count">1</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/10/">十月 2021</a><span class="archive-list-count">2</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/09/">九月 2021</a><span class="archive-list-count">4</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/08/">八月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/07/">七月 2021</a><span class="archive-list-count">6</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/06/">六月 2021</a><span class="archive-list-count">9</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/05/">五月 2021</a><span class="archive-list-count">7</span></li><li class="archive-list-item"><a class="archive-list-link" href="/archives/2021/04/">四月 2021</a><span class="archive-list-count">3</span></li></ul>
+    </div>
+  </div>
+
+
+    
+      
+  <div class="widget">
+    <h3 class="widget-title">最新文章</h3>
+    <div class="widget-body">
+      <ul class="recent-post-list list-unstyled no-thumbnail">
+        
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/golang/">golang</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/" class="title">Go实现一个Prometheus exporter</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-07-01T10:16:21.000Z" itemprop="datePublished">2022-07-01</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/06/07/Prometheus%20%E5%9B%9B%E7%A7%8Dmetric%E7%B1%BB%E5%9E%8B/" class="title">Prometheus四种metrics类型</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-06-07T12:16:21.000Z" itemprop="datePublished">2022-06-07</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/golang/">golang</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/05/12/%E9%80%9A%E8%BF%87Go%E5%AE%9E%E7%8E%B0AES%E5%8A%A0%E5%AF%86%E5%92%8C%E8%A7%A3%E5%AF%86%E5%B7%A5%E5%85%B7/" class="title">通过Go实现AES加密和解密工具</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-05-12T12:16:21.000Z" itemprop="datePublished">2022-05-12</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/golang/">golang</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/04/19/Go%E9%80%9A%E8%BF%87cobra%E5%BF%AB%E9%80%9F%E6%9E%84%E5%BB%BA%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%BA%94%E7%94%A8/" class="title">Go通过cobra快速构建命令行应用</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-04-19T12:16:21.000Z" itemprop="datePublished">2022-04-19</time>
+              </p>
+            </div>
+          </li>
+          
+          <li>
+            
+            <div class="item-inner">
+              <p class="item-category">
+                <a class="category-link" href="/categories/prometheus/">prometheus</a>
+              </p>
+              <p class="item-title">
+                <a href="/2022/04/15/Prometheus%20TSDB%E5%AD%98%E5%82%A8%E5%8E%9F%E7%90%86/" class="title">Prometheus TSDB存储原理</a>
+              </p>
+              <p class="item-date">
+                <time datetime="2022-04-15T12:16:21.000Z" itemprop="datePublished">2022-04-15</time>
+              </p>
+            </div>
+          </li>
+          
+      </ul>
+    </div>
+  </div>
+  
+
+    
+  </div>
+</aside>
+
+  
+  
+<main class="main" role="main">
+  <div class="content">
+  <article id="post-Go实现一个Prometheus exporter" class="article article-type-post" itemscope itemtype="http://schema.org/BlogPosting">
+    
+    <div class="article-header">
+      
+        
+  
+    <h1 class="article-title" itemprop="name">
+      Go实现一个Prometheus exporter
+    </h1>
+  
+
+      
+      <div class="article-meta">
+        <span class="article-date">
+    <i class="fa fa-calendar-check-o"></i>
+	<a href="/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/" class="article-date">
+	  <time datetime="2022-07-01T10:16:21.000Z" itemprop="datePublished">2022-07-01</time>
+	</a>
+</span>
+        
+  <span class="article-category">
+    <i class="fa fa-folder"></i>
+    <a class="article-category-link" href="/categories/golang/">golang</a>
+  </span>
+
+        
+  <span class="article-tag">
+    <i class="fa fa-tag"></i>
+	<a class="article-tag-link-link" href="/tags/prometheus/" rel="tag">prometheus</a>
+  </span>
+
+
+        
+
+        <span class="post-comment"><i class="fa fa-commenting-o"></i> <a href="/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/#comments" class="article-comment-link">评论</a></span>
+        
+	
+		<span class="post-wordcount hidden-xs" itemprop="wordCount">字数统计: 1.5k(字)</span>
+	
+	
+		<span class="post-readcount hidden-xs" itemprop="timeRequired">阅读时长: 7(分)</span>
+	
+
+      </div>
+      
+    </div>
+    <div class="article-entry markdown-body" itemprop="articleBody">
+      
+        <p>Prometheus 官方和社区提供了非常多的exporter，涵盖数据库、中间件、OS、存储、硬件设备等，具体可查看<a target="_blank" rel="noopener" href="https://github.com/prometheus/docs/blob/main/content/docs/instrumenting/exporters.md">exporters</a>、<a target="_blank" rel="noopener" href="https://exporterhub.io/">exporterhub.io</a>，通过这些 exporter 基本可以覆盖80%的监控需求，依然有小部分需要通过自定义脚本或者定制、修改社区exporter实现。本文我们将学习如何通过go编写一个简单的expoter用于暴露OS的负载。</p>
+<p>要实现的三个load指标如下：</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220630172352629.png" alt="image-20220630172352629"></p>
+<p>exporter的核心是http服务，对外暴露exporter本身运行时指标和监控信息。我们可以直接通过例如<code>net/http</code>暴力的构建web后端，更好的方式是使用Prometheus 官方提供的client library 来简化一部分工作。</p>
+<p>client library官方支持语言：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://github.com/prometheus/client_golang">Go</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/prometheus/client_java">Java or Scala</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/prometheus/client_python">Python</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/prometheus/client_ruby">Ruby</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/prometheus/client_rust">Rust</a></li>
+</ul>
+<p>也有社区支持的其他语言库如C、C++、PHP等</p>
+<h3 id="获取数据源"><a href="#获取数据源" class="headerlink" title="获取数据源"></a>获取数据源</h3><hr>
+<p>在使用client library暴露数据之前，我们得先找到数据源，以linux为例要获取系统负载我们可以读取/proc目录下的loadavg文件。涉及到各类操作系统指标的获取可以参考官方的<a target="_blank" rel="noopener" href="https://github.com/prometheus/node_exporter">node-exporter</a>，这里我们给他写成load包，等会直接调用GetLoad()就能拿到数据了。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> collect</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">        <span class="string">&quot;fmt&quot;</span></span><br><span class="line">        <span class="string">&quot;io/ioutil&quot;</span></span><br><span class="line">        <span class="string">&quot;strconv&quot;</span></span><br><span class="line">        <span class="string">&quot;strings&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment">// The path of the proc filesystem.</span></span><br><span class="line"><span class="keyword">var</span> procPath = <span class="string">&quot;/proc/loadavg&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// Read loadavg from /proc.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">GetLoad</span><span class="params">()</span> <span class="params">(loads []<span class="keyword">float64</span>, err error)</span></span> &#123;</span><br><span class="line">        data, err := ioutil.ReadFile(procPath)</span><br><span class="line">        <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">        &#125;</span><br><span class="line">        loads, err = parseLoad(<span class="keyword">string</span>(data))</span><br><span class="line">        <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> loads, <span class="literal">nil</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// Parse /proc loadavg and return 1m, 5m and 15m.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">parseLoad</span><span class="params">(data <span class="keyword">string</span>)</span> <span class="params">(loads []<span class="keyword">float64</span>, err error)</span></span> &#123;</span><br><span class="line">        loads = <span class="built_in">make</span>([]<span class="keyword">float64</span>, <span class="number">3</span>)</span><br><span class="line">        parts := strings.Fields(data)</span><br><span class="line">        <span class="keyword">if</span> <span class="built_in">len</span>(parts) &lt; <span class="number">3</span> &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">nil</span>, fmt.Errorf(<span class="string">&quot;unexpected content in %s&quot;</span>, procPath)</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">for</span> i, load := <span class="keyword">range</span> parts[<span class="number">0</span>:<span class="number">3</span>] &#123;</span><br><span class="line">                loads[i], err = strconv.ParseFloat(load, <span class="number">64</span>)</span><br><span class="line">                <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">                        <span class="keyword">return</span> <span class="literal">nil</span>, fmt.Errorf(<span class="string">&quot;could not parse load &#x27;%s&#x27;: %w&quot;</span>, load, err)</span><br><span class="line">                &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> loads, <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="通过client-golang暴露指标"><a href="#通过client-golang暴露指标" class="headerlink" title="通过client_golang暴露指标"></a>通过client_golang暴露指标</h3><hr>
+<p>开通我们提到exporter要暴露的指标包含两部分，一是本身的运行时信息，另一个监控的metrics。而运行时信息<code>client_golang</code>已经帮我们实现了，我们要做的是通过<code>client_golang</code>包将监控数据转换为metrics后再暴露出来。</p>
+<p>一个最基础使用<code>client_golang</code>包示例如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">        <span class="string">&quot;net/http&quot;</span></span><br><span class="line"></span><br><span class="line">        <span class="string">&quot;github.com/prometheus/client_golang/prometheus/promhttp&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">        http.Handle(<span class="string">&quot;/metrics&quot;</span>, promhttp.Handler())</span><br><span class="line">        http.ListenAndServe(<span class="string">&quot;:2112&quot;</span>, <span class="literal">nil</span>)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>promhttp.Handler()</code>封装了本身的 go 运行时 metrics，并按照metircs后接value的格式在前端输出。</p>
+<p>当我们访问2112端口的metrics路径时得到如下数据：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"># HELP go_gc_duration_seconds A summary of the pause duration of garbage collection cycles.</span><br><span class="line"># TYPE go_gc_duration_seconds summary</span><br><span class="line">go_gc_duration_seconds&#123;quantile=&quot;0&quot;&#125; 0</span><br><span class="line">go_gc_duration_seconds&#123;quantile=&quot;0.25&quot;&#125; 0</span><br><span class="line">go_gc_duration_seconds&#123;quantile=&quot;0.5&quot;&#125; 0</span><br><span class="line">go_gc_duration_seconds&#123;quantile=&quot;0.75&quot;&#125; 0</span><br><span class="line">go_gc_duration_seconds&#123;quantile=&quot;1&quot;&#125; 0</span><br><span class="line">go_gc_duration_seconds_sum 0</span><br><span class="line">go_gc_duration_seconds_count 0</span><br><span class="line"># HELP go_goroutines Number of goroutines that currently exist.</span><br><span class="line"># TYPE go_goroutines gauge</span><br><span class="line">go_goroutines 7</span><br><span class="line"># HELP go_info Information about the Go environment.</span><br><span class="line"># TYPE go_info gauge</span><br><span class="line">go_info&#123;version=&quot;go1.15.14&quot;&#125; 1</span><br><span class="line"># HELP go_memstats_alloc_bytes Number of bytes allocated and still in use.</span><br><span class="line"># TYPE go_memstats_alloc_bytes gauge</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p><strong>如何暴露自定义metrics呢？</strong></p>
+<p>先看如下的示例：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">	<span class="string">&quot;net/http&quot;</span></span><br><span class="line">	<span class="string">&quot;time&quot;</span></span><br><span class="line">	<span class="string">&quot;log&quot;</span></span><br><span class="line"></span><br><span class="line">	<span class="string">&quot;github.com/prometheus/client_golang/prometheus&quot;</span></span><br><span class="line">	<span class="string">&quot;github.com/prometheus/client_golang/prometheus/promhttp&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">recordMetrics</span><span class="params">()</span></span> &#123;</span><br><span class="line">	<span class="keyword">go</span> <span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">		<span class="keyword">for</span> &#123;</span><br><span class="line">			opsProcessed.Inc()</span><br><span class="line">			time.Sleep(<span class="number">2</span> * time.Second)</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">var</span> (</span><br><span class="line">	opsProcessed = prometheus.NewCounter(prometheus.CounterOpts&#123;</span><br><span class="line">		Namespace: <span class="string">&quot;myapp&quot;</span>,</span><br><span class="line">		Name:      <span class="string">&quot;processed_ops_total&quot;</span>,</span><br><span class="line">		Help:      <span class="string">&quot;The total number of processed events&quot;</span>,</span><br><span class="line">	&#125;)</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	prometheus.MustRegister(opsProcessed)</span><br><span class="line">	recordMetrics()</span><br><span class="line"></span><br><span class="line">	http.Handle(<span class="string">&quot;/metrics&quot;</span>, promhttp.Handler())</span><br><span class="line">	log.Print(<span class="string">&quot;export /metrics on port :8085&quot;</span>)</span><br><span class="line">	http.ListenAndServe(<span class="string">&quot;:8085&quot;</span>, <span class="literal">nil</span>)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>示例来自于官方仓库，做了稍加修改。可以看到使用NewCounter方法可以很快的帮我们创建一个Prometheus Counter数据类型实例。</p>
+<p>Counter接口的定义包含了Counter本身的特性-只能增加即Inc和Add，同时还包含Meterics、Collector接口</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220701150155913.png" alt="image-20220701150155913"></p>
+<p>Collector还包含2个方法，待会我们写自己的Collector时需要实现这两个方法。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Collector <span class="keyword">interface</span> &#123;</span><br><span class="line">	Describe(<span class="keyword">chan</span>&lt;- *Desc)</span><br><span class="line">	Collect(<span class="keyword">chan</span>&lt;- Metric)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>CounterOpts 来源于metrics.go 的Ops结构体定义了构成metrics的基本结构。</p>
+<p><img src="https://markdown-1257692304.cos.ap-nanjing.myqcloud.com/markdown_img/image-20220701143907873.png" alt="image-20220701143907873"></p>
+<p>接着将opsProcessed这个Counter进行注册，所谓注册也就是让<code>Handler</code>跟踪这个Counter中的metircs和collector</p>
+<p>运行后，访问/metircs可以看到自定义指标myapp_processed_ops_total通过定时的Inc()调用来更新value</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># HELP myapp_processed_ops_total The total number of processed events</span><br><span class="line"># TYPE myapp_processed_ops_total counter</span><br><span class="line">myapp_processed_ops_total <span class="number">15</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>下面我们通过自定义collector实现一个简易的exporter</strong></p>
+<p>目录结构如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># tree .</span><br><span class="line">.</span><br><span class="line">├── collect</span><br><span class="line">│   ├── collector.go</span><br><span class="line">│   └── loadavg.go</span><br><span class="line">├── go.mod</span><br><span class="line">├── go.sum</span><br><span class="line">└── main.go</span><br></pre></td></tr></table></figure>
+
+<p>loadavg.go即上面的获取数据源。</p>
+<p>collector.go如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> collect</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> (</span><br><span class="line">	<span class="string">&quot;log&quot;</span></span><br><span class="line"></span><br><span class="line">	<span class="string">&quot;github.com/prometheus/client_golang/prometheus&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="keyword">var</span> namespace = <span class="string">&quot;node&quot;</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> loadavgCollector <span class="keyword">struct</span> &#123;</span><br><span class="line">	metrics []typedDesc</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">type</span> typedDesc <span class="keyword">struct</span> &#123;</span><br><span class="line">	desc      *prometheus.Desc</span><br><span class="line">	valueType prometheus.ValueType</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">NewloadavgCollector</span><span class="params">()</span> *<span class="title">loadavgCollector</span></span> &#123;</span><br><span class="line">	<span class="keyword">return</span> &amp;loadavgCollector&#123;</span><br><span class="line">		metrics: []typedDesc&#123;</span><br><span class="line">			&#123;prometheus.NewDesc(namespace+<span class="string">&quot;_load1&quot;</span>, <span class="string">&quot;1m load average.&quot;</span>, <span class="literal">nil</span>, <span class="literal">nil</span>), prometheus.GaugeValue&#125;,</span><br><span class="line">			&#123;prometheus.NewDesc(namespace+<span class="string">&quot;_load5&quot;</span>, <span class="string">&quot;5m load average.&quot;</span>, , <span class="literal">nil</span>), prometheus.GaugeValue&#125;,</span><br><span class="line">			&#123;prometheus.NewDesc(namespace+<span class="string">&quot;_load15&quot;</span>, <span class="string">&quot;15m load average.&quot;</span>, <span class="literal">nil</span>, <span class="literal">nil</span>), prometheus.GaugeValue&#125;,</span><br><span class="line">		&#125;,</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//Each and every collector must implement the Describe function.</span></span><br><span class="line"><span class="comment">//It essentially writes all descriptors to the prometheus desc channel.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(collector *loadavgCollector)</span> <span class="title">Describe</span><span class="params">(ch <span class="keyword">chan</span>&lt;- *prometheus.Desc)</span></span> &#123;</span><br><span class="line"></span><br><span class="line">	<span class="comment">//Update this section with the each metric you create for a given collector</span></span><br><span class="line">	ch &lt;- collector.metrics[<span class="number">1</span>].desc</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">//Collect implements required collect function for all promehteus collectors</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(collector *loadavgCollector)</span> <span class="title">Collect</span><span class="params">(ch <span class="keyword">chan</span>&lt;- prometheus.Metric)</span></span> &#123;</span><br><span class="line"></span><br><span class="line">	<span class="comment">//Implement logic here to determine proper metric value to return to prometheus</span></span><br><span class="line">	<span class="comment">//for each descriptor or call other functions that do so.</span></span><br><span class="line">	loads, err := GetLoad()</span><br><span class="line">	<span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">		log.Print(<span class="string">&quot;get loadavg error: &quot;</span>, err)</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="comment">//Write latest value for each metric in the prometheus metric channel.</span></span><br><span class="line">	<span class="comment">//Note that you can pass CounterValue, GaugeValue, or UntypedValue types here.</span></span><br><span class="line"></span><br><span class="line">	<span class="keyword">for</span> i, load := <span class="keyword">range</span> loads &#123;</span><br><span class="line">		ch &lt;- prometheus.MustNewConstMetric(collector.metrics[i].desc, prometheus.GaugeValue, load)</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>collector中每一个要暴露的metrics都需要包含一个metrics描述即desc，都需要符合prometheus.Desc结构，我们可以直接使用NewDesc来创建。这里我们创建了三个metircs_name分别为node_load1、node_load5、node_15以及相应的描述，也可以加上对应的label。</p>
+<p>接着实现collector的两个方法Describe、Collect分别写入对应的发送channel，其中prometheus.Metric的通道传入的值还包括三个load的value</p>
+<p>最后在主函数中注册collector</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">prometheus.MustRegister(collect.NewloadavgCollector())</span><br></pre></td></tr></table></figure>
+
+<p>在Prometheus每个请求周期到达时都会使用GetLoad()获取数据，转换为metircs，发送给Metrics通道，http Handler处理和返回。</p>
+
+      
+    </div>
+    <div class="article-footer">
+      <!--<blockquote class="mt-2x">
+  <ul class="post-copyright list-unstyled">
+    
+    <li class="post-copyright-link hidden-xs">
+      <strong>本文链接：</strong>
+      <a href="https://iqsing.github.io/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/" title="Go实现一个Prometheus exporter" target="_blank" rel="external">https://iqsing.github.io/2022/07/01/Go%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AAPrometheus%20exporter/</a>
+    </li>
+    
+    <li class="post-copyright-license">
+      <strong>版权声明： </strong> 本博客所有文章除特别声明外，均采用 <a href="http://creativecommons.org/licenses/by/4.0/deed.zh" target="_blank" rel="external">CC BY 4.0 CN协议</a> 许可协议。转载请注明出处！
+    </li>
+  </ul> 
+</blockquote> 
+
+
+<div class="panel panel-default panel-badger">
+  <div class="panel-body">
+    <figure class="media">
+      <div class="media-left">
+        <a href="https://github.com/iqsing" target="_blank" class="img-burn thumb-sm visible-lg">
+          <img src="/images/avatar.jpg" class="img-rounded w-full" alt="">
+        </a>
+      </div>
+      <div class="media-body">
+        <h3 class="media-heading"><a href="https://github.com/iqsing" target="_blank"><span class="text-dark">qsing</span><small class="ml-1x">Devops&amp;SRE</small></a></h3>
+        <div>个人简介。</div>
+      </div>
+    </figure>
+  </div>
+</div>
+
+-->
+
+    </div>
+  </article>
+  
+    
+  <section id="comments">
+  	
+       
+    <div id="uyan_frame"></div>
+
+    
+  </section>
+
+
+  
+</div>
+
+  <nav class="bar bar-footer clearfix" data-stick-bottom>
+  <div class="bar-inner">
+  
+  <ul class="pager pull-left">
+    
+    
+    <li class="next">
+      <a href="/2022/06/07/Prometheus%20%E5%9B%9B%E7%A7%8Dmetric%E7%B1%BB%E5%9E%8B/" title="Prometheus四种metrics类型">下一篇&nbsp;&nbsp;<i class="fa fa-angle-right" aria-hidden="true"></i></a>
+    </li>
+    
+  </ul>
+  
+  
+  
+  </div>
+</nav>
+  
+
+
+</main>
+
+  <footer class="footer" itemscope itemtype="http://schema.org/WPFooter">
+	
+	
+    <ul class="social-links">
+    	
+        <li><a href="https://github.com/iqsing" target="_blank" title="Github" data-toggle=tooltip data-placement=top><i class="fa fa-github"></i></a></li>
+        
+        <li><a href="https://twitter.com/Hi_Qsing" target="_blank" title="Twitter" data-toggle=tooltip data-placement=top><i class="fa fa-twitter"></i></a></li>
+        
+        <li><a href="/atom.xml" target="_blank" title="Rss" data-toggle=tooltip data-placement=top><i class="fa fa-rss"></i></a></li>
+        
+    </ul>
+
+    <div class="copyright">
+    	
+        &copy; 2022 qsing
+        
+        <div class="publishby">
+        	Powered by <a href="https://github.com/cofess" target="_blank"> cofess </a>base on <a href="https://github.com/cofess/hexo-theme-pure" target="_blank">pure</a>.
+        </div> 
+    </div>
+</footer>
+  <script src="https://cdn.bootcss.com/jquery/1.12.4/jquery.min.js"></script>
+<script>
+window.jQuery || document.write('<script src="js/jquery.min.js"><\/script>')
+</script>
+
+<script src="/js/plugin.js"></script>
+
+
+<script src="/js/application.js"></script>
+
+  
+    
+    
+    
+        <script>
+(function (window) {
+    var INSIGHT_CONFIG = {
+        TRANSLATION: {
+            POSTS: '文章',
+            PAGES: '页面',
+            CATEGORIES: '分类',
+            TAGS: '标签',
+            UNTITLED: '(未命名)',
+        },
+        ROOT_URL: '/',
+        CONTENT_URL: '/content.json',
+    };
+    window.INSIGHT_CONFIG = INSIGHT_CONFIG;
+})(window);
+</script>
+
+<script src="/js/insight.js"></script>
+
+    
+    
+    
+        
+
+
+    
+    
+        
+    
+    <script defer type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=[object Object]"></script>
+
+
+    
+    
+
+
+
+  
+  <style>
+    .copy-btn {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 20px;
+      color: #333;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      background-color: #eee;
+      background-image: linear-gradient(#fcfcfc, #eee);
+      border: 1px solid #d5d5d5;
+      border-radius: 3px;
+      user-select: none;
+      outline: 0;
+    }
+
+    .highlight-wrap .copy-btn {
+      transition: opacity .3s ease-in-out;
+      opacity: 0;
+      padding: 2px 6px;
+      position: absolute;
+      right: 4px;
+      top: 8px;
+      z-index: 2;
+    }
+
+    .highlight-wrap:hover .copy-btn,
+        .highlight-wrap .copy-btn:focus {
+      opacity: 1
+    }
+
+    .highlight-wrap {
+      position: relative;
+    }
+  </style>
+  
+  <script>
+    addLoadEvent(()=>{
+      $('.highlight').each(function (i, e) {
+        var $wrap = $('<div>').addClass('highlight-wrap')
+        $(e).after($wrap)
+        $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function (e) {
+          var code = $(this).parent().find(".code")[0].innerText
+          
+          var ta = document.createElement('textarea')
+          document.body.appendChild(ta)
+          ta.style.position = 'absolute'
+          ta.style.top = '0px'
+          ta.style.left = '0px'
+          ta.value = code
+          ta.select()
+          ta.focus()
+          var result = document.execCommand('copy')
+          document.body.removeChild(ta)
+          
+            if(result)$(this).text('复制成功')
+            else $(this).text('复制失败')
+          
+          $(this).blur()
+        })).on('mouseleave', function (e) {
+          var $b = $(this).find('.copy-btn')
+          setTimeout(function () {
+            $b.text('复制')
+          }, 300)
+        }).append(e)
+      })
+    })
+  </script>
+
+</body>
+</html>
